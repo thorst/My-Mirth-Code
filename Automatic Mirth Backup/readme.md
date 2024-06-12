@@ -6,6 +6,6 @@ This is just a backup/alternative download. Currently no intention on branching 
 
 How to use:
 
-Place the zip4J library in the custom-lib folder of mirth. (It is needed for zip encryption - further info can be found on the website)
-Press the button "Reload Resources" under Settings -> Resources in Mirth Administrator
-Import the attached code template
+- Place the zip4J library in the custom-lib folder of mirth. (It is needed for zip encryption - further info can be found on the website)
+- Press the button "Reload Resources" under Settings -> Resources in Mirth Administrator
+- Import the attached code template

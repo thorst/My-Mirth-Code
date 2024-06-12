@@ -1,0 +1,193 @@
+<codeTemplate version="3.7.1">
+  <id>3cfb53eb-3a21-47d6-9570-4aefacbbe56c</id>
+  <name>backupMirthServer()</name>
+  <revision>16</revision>
+  <lastModified>
+    <time>1695731432202</time>
+    <timezone>Europe/Berlin</timezone>
+  </lastModified>
+  <contextSet>
+    <delegate>
+      <contextType>SOURCE_FILTER_TRANSFORMER</contextType>
+      <contextType>DESTINATION_RESPONSE_TRANSFORMER</contextType>
+      <contextType>DESTINATION_FILTER_TRANSFORMER</contextType>
+      <contextType>DESTINATION_DISPATCHER</contextType>
+      <contextType>SOURCE_RECEIVER</contextType>
+    </delegate>
+  </contextSet>
+  <properties class="com.mirth.connect.model.codetemplates.BasicCodeTemplateProperties">
+    <type>FUNCTION</type>
+    <code>/**
+	Creates a backup of the whole mirth configuration (like if you press the &quot;backup config&quot; button in Mirth Administrator) 
+	and writes it to a folder.&lt;br/&gt;
+	&lt;br/&gt;
+	&lt;i&gt;The name of each backup is unique &amp; all backups of one day will be written to a dedicated sub-folder named by the date&lt;/i&gt;
+
+	@param {String} username - The username that the channel should use to connect to the server that should be backed-up.
+	@param {String} password - The password that the channel should use to connect to the server that should be backed-up.
+	@param {String} server - The ip or name of the mirth server that should be backed-up. It can also contain a custom port. This parameter will become part of the backup name. 
+	@param {String} backupFolder - Path to the folder where the backup should be created
+	@param {String} archivePassword - If a password is provided, the zip archive will be encrypted with this password
+*/
+function backupMirthServer(username, password, server, backupFolder, archivePassword) {
+
+	logger.info(&apos;Initializing export of mirth server &apos; + server);
+
+	// create a client instance and initialize it with the server to which it should connect
+	var client = new com.mirth.connect.client.core.Client(&apos;https://&apos; + server + ((server.indexOf(&apos;:&apos;) == -1) ? &apos;:8443&apos; : &apos;&apos;));
+	// create an instance of the serializer used to serialize the configuration to xml
+	var  serializer = com.mirth.connect.model.converters.ObjectXMLSerializer.getInstance();
+	// log on to the server
+	try{
+		var loginStatus = client.login(username, password);
+	}catch(ex){
+		throw &apos;Unable to log-on the server &quot;&apos; + server + &apos;&quot; with credentials &apos; + username + &apos;/&apos; + password + &apos; (incompatible mirth version?): &apos; + ex.message;
+	}
+	
+	// check if login was successful
+	if (loginStatus.getStatus() != com.mirth.connect.model.LoginStatus.Status.SUCCESS) {
+		logger.error(&apos;Unable to log-on the server &quot;&apos; + server + &apos;&quot; with credentials &apos; + username + &apos;/&apos; + password + &apos;(status &apos; + loginStatus.getStatus() + &apos;)&apos;);
+		return;
+	}
+
+	try {
+		// get the server configuration
+		var configuration = client.getServerConfiguration();
+		// get the current date as string
+		var backupDate = new String(DateUtil.getCurrentDate(&apos;yyyy-MM-dd HH:mm:ss&apos;));
+		var todaysFolder = new String(DateUtil.getCurrentDate(&apos;yyyy-MM-dd&apos;));
+
+		// check if user has appropriate permissions to write to the backup folder
+		if(!java.nio.file.Files.isWritable(java.nio.file.Paths.get(backupFolder))){
+			logger.error(&apos;No permissions to write to folder &quot;&apos; + backupFolder + &apos;&quot;&apos;);
+			throw &apos;No permissions to write to folder &quot;&apos; + backupFolder + &apos;&quot;&apos;;
+		}
+		
+		// generate the complete backupPath of the backup file
+		var backupFolder = (new String(backupFolder)).replace(/\\/g, &apos;/&apos;) + &apos;/&apos; + todaysFolder;
+		var backupPath = backupFolder + &apos;/&apos; + server.replace(/:/g, &apos;-&apos;) + &apos;_&apos; + backupDate.replace(/:/g, &apos;-&apos;) + &apos;.zip&apos;;
+		// set the date of the backup in the server configuration
+		configuration.setDate(backupDate);
+		
+		// create the directory if not existant
+		org.apache.commons.io.FileUtils.forceMkdir(new java.io.File(backupFolder));
+		// create the archive
+		var archive = new net.lingala.zip4j.core.ZipFile(backupPath);
+		// and set the compression parameters
+		var archiveParameters = new net.lingala.zip4j.model.ZipParameters();
+		archiveParameters.setCompressionMethod(net.lingala.zip4j.util.Zip4jConstants.COMP_DEFLATE);
+		// and set the highest (and slowest) compression rate possible
+		archiveParameters.setCompressionLevel(net.lingala.zip4j.util.Zip4jConstants.DEFLATE_LEVEL_ULTRA);
+		// indicate that thei files will be streamed to the archive
+		archiveParameters.setSourceExternalStream(true);
+		
+		// if a password was provided, encrypt the archive
+		if ((archivePassword !== undefined) &amp;&amp; archivePassword) {
+			// activate encryption if password for archive is set
+			archiveParameters.setEncryptFiles(true);
+			// set the encryption algorithm
+			archiveParameters.setEncryptionMethod(net.lingala.zip4j.util.Zip4jConstants.ENC_METHOD_AES);
+			// and also the encrpytion strength
+			archiveParameters.setAesKeyStrength(net.lingala.zip4j.util.Zip4jConstants.AES_STRENGTH_256);
+			// set the password of the encrypted archive
+			archiveParameters.setPassword(archivePassword);
+		}
+		
+		// 1.) export the mirth configuration to the archive
+		// create an xml representation of the configuration object
+		configuration = serializer.serialize(configuration);
+		// create a streem from the xml
+		configuration = new java.io.ByteArrayInputStream(configuration.getBytes());
+		logger.info(&apos;Exporting configuration of mirth server &quot;&apos; + server + &apos;&quot;&apos;);
+		// set the filename for the server configuration in the archive
+		archiveParameters.setFileNameInZip(server + &apos;_&apos; + backupDate.replace(/:/g, &apos;-&apos;) + &apos;.xml&apos;);
+		// and write the file to the archive
+		archive.addStream(configuration, archiveParameters);
+
+		//2.) export the configuration map to the archive 
+		// set the filename for the server configuration in the archive
+		archiveParameters.setFileNameInZip(&apos;configuration.properties&apos;);
+		var configMap = getConfigurationProperties(client);
+		// and write the file to the archive
+		archive.addStream(configMap, archiveParameters);
+
+		// end the session
+		client.logout();
+		// and close the client instance
+		client.close();
+		logger.info(&apos;Configuration of mirth server &quot;&apos; + server + &apos;&quot; has been exported to &quot;&apos; + backupPath + &apos;&quot;&apos;);
+	} catch (ex) {
+		logger.error(&apos;unable to write file &quot;&apos; + backupPath + &apos;&quot;: &apos; + ex.message);
+	} finally{
+		try{file.close();}catch(e){}
+		try{configMap.close();}catch(e){}
+	}
+}
+
+
+/**
+	Provides the configuration map as an imput stream.
+
+	@param {Object} client - The mirth client instance for the server of which the configuration map should  be exported.
+	@return {InputStream} The configuration map in the format like in the &lt;b&gt;&lt;i&gt;configuration.properteis&lt;/b&gt;&lt;/i&gt; file
+*/
+function getConfigurationProperties(client){
+	var useCommons2 = true;
+	// check commons version
+	try {
+		// will throw ClassNotFoundException if v2 is used
+		var test = java.lang.Class.forName(&quot;org.apache.commons.configuration.PropertiesConfiguration&quot;);
+		// will only be set if no exception was raised
+		var useCommons2 = false;	
+	} catch(e) {}
+	
+	// prepare structure
+	var properties = useCommons2 ? new org.apache.commons.configuration2.PropertiesConfiguration() : new org.apache.commons.configuration.PropertiesConfiguration();
+	
+	if(!useCommons2){
+		// no fancy parsing here just a standard container
+		properties.setDelimiterParsingDisabled(true);
+		properties.setListDelimiter(0);
+		properties.clear();
+	}
+	var layout = properties.getLayout();
+
+	// order the properties - basically just like the mirth admin does
+	var sortedMap = java.util.TreeMap(java.lang.String.CASE_INSENSITIVE_ORDER);
+	sortedMap.putAll(client.getConfigurationMap());
+
+	// change the layout for obtainin
+	for (var iterator = sortedMap.entrySet().iterator(); iterator.hasNext();) {
+		var entry = iterator.next();
+
+		var key = entry.getKey();
+		// if the key is left emty, this entry is invalid and therefore skipped
+		if(!key){continue;}
+		
+		var value = entry.getValue().getValue();
+		var comment = entry.getValue().getComment();
+		properties.setProperty(key, value);
+		
+		layout.setComment(key, comment ? comment : null);
+	}
+
+	if(useCommons2){
+		// now write the file to a stream. Let&apos;s do everything on the fly
+		var exportMap = new java.io.StringWriter();
+		properties.write(exportMap);
+		
+		// provide an input stream that can directly be written to the archive
+		var result = java.io.ByteArrayInputStream(exportMap.toString().getBytes(&quot;UTF-8&quot;));	
+	} else{
+		// now write the file to a stream. Let&apos;s do everything on the fly
+		var exportMap = new java.io.ByteArrayOutputStream();
+		properties.save(exportMap);
+		
+		// create an input stream that can directly be written to the archive
+		var result = new java.io.ByteArrayInputStream(exportMap.toByteArray());
+	}
+	
+	return result;
+}</code>
+  </properties>
+</codeTemplate>

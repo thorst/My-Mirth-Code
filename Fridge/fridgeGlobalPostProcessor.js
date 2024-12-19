@@ -17,8 +17,8 @@
             sent datetime.
 
     Potential additions:
-        -Add filter for channel readers, where I dont save the raw, since that could be found on the sending destination		
-        -Add option to include destination data, for people who dont use queue and/or dont care about the sent datetime etc
+        -Add filter for channel readers, where I dont save the raw, since that could be found on the sending destination <- more effort than its worth
+        -Add option to include destination data, for people who dont use queue and/or dont care about the sent datetime etc <- this is outdated, i do this now
 
     	
 */
@@ -38,23 +38,24 @@ try {
     // Where we should save the files
     // We have a `serverInstallDir` stored in the configuration map, because we may have
     // different roots depending on the version of the installation.
-    var serverInstallDir = $cfg("serverInstallDir");
-    var dir = serverInstallDir + "/_in/channels/system/fridge";
+    var serverInstallDir = $cfg("serverRoot");
+    var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge";
 
 
     // Create a list of channels to exclude from saving
-    var shouldIgnoreChannels = false;
+    var shouldIgnoreChannels = true;
     var ignoreChannels = [
-        "Channel 1",
+        "fridgeLoad",
         "Channel 2"
     ];
 
     // Create a list of channels to include for saving
-    var shouldIncludeChannels = true;
+    var shouldIncludeChannels = false;
     var includeChannels = [
         "Channel 3",
         "Channel 4"
     ];
+
 
     var startTime = new Date().getTime();
 
@@ -69,6 +70,9 @@ try {
     if (shouldIncludeChannels && includeChannels.indexOf(channelName) == -1) {
         return;
     }
+
+
+
 
     // Get the message ID
     var messageId = message.getMessageId();
@@ -110,17 +114,30 @@ try {
                 processingState: processingState,
                 message: connector.getRawData(),
                 transmitDate: connector.getReceivedDate().getTimeInMillis(),
+                estimatedDate: connector.getReceivedDate().getTimeInMillis(),
                 mapConnector: mapParse(connector.getConnectorMap()),
                 mapSource: mapParse(connector.getSourceMap()),
 
                 response: response && response.getContent ? response.getContent() : "",
             });
 
-
-            break;
+            // Exist current loop
+            continue;
         }
 
-
+        // Throw the destinations estimated sent time, this will be the same as what we have today
+        // where we dont require the response transformer script
+        saveObj.connectors.push({
+            connectorId: connectorId,
+            connectorName: connectorName,
+            processingState: processingState,
+            message: null,
+            transmitDate: connector.getSendDate() ? connector.getSendDate().getTimeInMillis() : 0,
+            estimatedDate: connector.getReceivedDate().getTimeInMillis(),
+            mapConnector: null,
+            mapSource: null,
+            response: null
+        });
 
 
     } // End iterator

@@ -25,8 +25,9 @@ function fridgeResponseTransformer() {
         // Where we should save the files
         // We have a `serverInstallDir` stored in the configuration map, because we may have
         // different roots depending on the version of the installation.
-        var serverInstallDir = $cfg("serverInstallDir");
-        var dir = serverInstallDir + "/_in/channels/system/fridge";
+
+        var serverInstallDir = $cfg("serverRoot");
+        var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge";
 
         // Start the timer
         timerStart("conn" + connectorId);

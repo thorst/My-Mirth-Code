@@ -33,8 +33,57 @@ With this we can upgrade postgres quicker due to a smaller db size, have message
 1. Purge Channel - A channel to purge the db of transactions older than X number of days
 1. Api Channel - A channel to house a restful api
    1. Last Activity - Returns a list of channels, thier connectors, and the last datetime a transaction was actually sent to the destination
-   1. Retreive Transactions - Returns a list of transaction for a channel. Optionally take several parameters for filtering, paging, etc.
-   1. Resend Transaction - Resends a transaction
+   1. Retreive Message Headers - Returns a list of transaction for a channel. Optionally take several parameters for filtering, paging, etc.
+   1. Retreive Message Body - Returns the message, response, and maps
+   1. Retreive Map Keys - This grabs the most recent message for a channel/connector, and returns all the map keys, which we can use for filtering
 
 
 ## Datebase:
+```sql
+CREATE TABLE `fridge_message_history` (
+	`fridge_message_history_id` BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+	`message_id` BIGINT(20) UNSIGNED NOT NULL DEFAULT '0',
+	`channel_id` UUID NOT NULL,
+	`channel_name` VARCHAR(100) NOT NULL DEFAULT '' COLLATE 'latin1_swedish_ci',
+	`connector_id` TINYINT(3) UNSIGNED NOT NULL DEFAULT '0',
+	`connector_name` VARCHAR(100) NOT NULL DEFAULT '' COLLATE 'latin1_swedish_ci',
+	`send_state` VARCHAR(15) NOT NULL DEFAULT '' COLLATE 'latin1_swedish_ci',
+	`transmit_time` BIGINT(20) NOT NULL DEFAULT '0',
+	`maps` LONGTEXT NULL DEFAULT NULL COLLATE 'utf8mb4_bin',
+	`message` TEXT NOT NULL COLLATE 'latin1_swedish_ci',
+	`response` TEXT NULL DEFAULT NULL COLLATE 'latin1_swedish_ci',
+	`inserted` TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+	PRIMARY KEY (`fridge_message_history_id`) USING BTREE
+)
+COLLATE='latin1_swedish_ci'
+ENGINE=InnoDB
+AUTO_INCREMENT=855
+;
+```
+
+## Additional Funcitonality:
+Because we are getting all the data running throuhg the engine, and mirth doesnt have last activity data and times (which we use for inactivity monitoring)
+we can use this integation to track that.
+1. We Need an extra db table
+2. In the reading channel, we also insert activity information into the activity table
+3. We need an Api to return the activity read from the database
+4. We need the purge channel to remove items in the activity table that havent been updated. This would mean the channel/connector was renamed, or deleted
+
+```sql
+CREATE TABLE `last_activity` (
+	`last_activity_id` BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+	`channel_id` UUID NOT NULL,
+	`channel_name` VARCHAR(100) NOT NULL DEFAULT '0' COLLATE 'utf8mb4_unicode_ci',
+	`connector_id` TINYINT(3) UNSIGNED NOT NULL DEFAULT '0',
+	`connector_name` VARCHAR(100) NOT NULL DEFAULT '0' COLLATE 'utf8mb4_unicode_ci',
+	`estimated_transmit` BIGINT(20) UNSIGNED NOT NULL DEFAULT '0',
+	`actual_transmit` BIGINT(20) UNSIGNED NOT NULL DEFAULT '0',
+	`updated` DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+	PRIMARY KEY (`last_activity_id`) USING BTREE,
+	UNIQUE INDEX `unique_channel_connector` (`channel_id`, `connector_id`) USING BTREE
+)
+COMMENT='Holds the last activity datetime for each connector.'
+COLLATE='utf8mb4_unicode_ci'
+ENGINE=InnoDB
+;
+```

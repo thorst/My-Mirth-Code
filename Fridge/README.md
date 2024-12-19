@@ -61,6 +61,101 @@ AUTO_INCREMENT=855
 ;
 ```
 
+## Example Json From global post processor
+```json
+{
+  "channelId" : "f28a94dd-28b6-4178-93a0-aa51561dc3d7",
+  "channelName" : "RawHL7",
+  "messageId" : 29,
+  "mapChannel" : {
+    "MessageId" : "29"
+  },
+  "mapResponse" : {
+    "ack" : "MSH|^~\\&|||EPIC|Todd Horst was here|20241219135245|IPMD|ACK|1734634365|T|2.3\rMSA|AA|245140\r"
+  },
+  "connectors" : [
+    {
+      "connectorId" : 0,
+      "connectorName" : "Source",
+      "processingState" : "TRANSFORMED",
+      "message" : "MSH|^~\\&|EPIC|Todd Horst was here|||20240801093152|IPMD|ADT^A08|245140|T|2.3|||||||||||||||||||Todd Horst was also here\rEVN|A08|20240801093152\r",
+      "transmitDate" : 1734634365724,
+      "estimatedDate" : 1734634365724,
+      "mapConnector" : { },
+      "mapSource" : {
+        "FridgeResend" : "0",
+        "destinationSet" : [
+          0,
+          1,
+          3,
+          4
+        ]
+      },
+      "response" : ""
+    },
+    {
+      "connectorId" : 4,
+      "connectorName" : "ClassicV3",
+      "processingState" : "QUEUED",
+      "message" : null,
+      "transmitDate" : 0,
+      "estimatedDate" : 1734634365728,
+      "mapConnector" : null,
+      "mapSource" : null,
+      "response" : null
+    },
+    {
+      "connectorId" : 1,
+      "connectorName" : "Classic (Dont use)",
+      "processingState" : "FILTERED",
+      "message" : null,
+      "transmitDate" : 0,
+      "estimatedDate" : 1734634365728,
+      "mapConnector" : null,
+      "mapSource" : null,
+      "response" : null
+    },
+    {
+      "connectorId" : 3,
+      "connectorName" : "ClassicV2 (Dont use)",
+      "processingState" : "SENT",
+      "message" : null,
+      "transmitDate" : 1734634365734,
+      "estimatedDate" : 1734634365728,
+      "mapConnector" : null,
+      "mapSource" : null,
+      "response" : null
+    }
+  ],
+  "executionTime" : 0
+}
+```
+
+## Resonponse Transformer json output example
+```json
+{
+  "channelId" : "f28a94dd-28b6-4178-93a0-aa51561dc3d7",
+  "channelName" : "RawHL7",
+  "messageId" : 29,
+  "mapChannel" : null,
+  "mapResponse" : null,
+  "connectors" : [
+    {
+      "connectorId" : 4,
+      "connectorName" : "ClassicV3",
+      "processingState" : "SENT",
+      "message" : "MSH|^~\\&|EPIC|Todd Horst was here|||20240801093152|IPMD|ADT^A08|245140|T|2.3|||||||||||||||||||Todd Horst was also here\rEVN|A08|20240801093152\r",
+      "transmitDate" : 1734634365848,
+      "mapConnector" : { },
+      "mapSource" : null,
+      "response" : ""
+    }
+  ],
+  "executionTime" : -1
+}
+```
+
+
 ## Additional Funcitonality:
 Because we are getting all the data running throuhg the engine, and mirth doesnt have last activity data and times (which we use for inactivity monitoring)
 we can use this integation to track that.

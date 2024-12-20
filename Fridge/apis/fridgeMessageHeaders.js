@@ -1,5 +1,5 @@
 /*
-    WAPI API Tempalte 
+    WAPI API Template 
     
     This is the template you should be using when you create a new destination
     which is an api endpoint. Please keep the version in your copy so we know
@@ -8,15 +8,25 @@
     Template Version: 1
     
     Change Log:
-    03/19/2024 TMH -
-        - New template, before I just copied and pasted, trying to be more 
-            official here, standardize things, and bring things up to newest
-            standards.
+    12/19/2024 - Initial version
+
+    Required parameters:
+    channel_name
+    connector_name
+
+    Optional Parameters without defaults:
+    start_time
+    end_time
+    text search
+    count
+    filters
+    send_state 
+
+    Optional Parameters with defaults:
+    limit: 50
+    offset: 0
         
 */
-
-
-
 
 // Starting the response
 var json = {
@@ -28,23 +38,23 @@ var json = {
 my_code: try {
 
     // Currently this method only allows POST or GET
-    accept_methods(["Get", "POST"]);
+    accept_methods(["GET", "POST"]);
 
     // Initialize the parameters object
     var parameters = {};
 
-    // If its a GET then the parameters will be in the query string 
+    // If it's a GET then the parameters will be in the query string 
     if ($s("method") == "GET") {
         parameters = queryParams();
     }
 
     // If this is a POST then we just need to get the body and parse 
-    // it (its a string)
+    // it (it's a string)
     if ($s("method") == "POST") {
         parameters = bodyParam();
     }
 
-    // Double check there are parameteres
+    // Double check there are parameters
     if (objectIsEmpty(parameters)) {
         throw new Error("Must send in parameters.");
     }
@@ -63,12 +73,8 @@ my_code: try {
         parameters.offset = 0;
     }
 
-
-    // other parameters wihtout defaults
-    //start_time
-    //end_time
-    //text search
-
+    // Check if count is requested
+    var countOnly = parameters.hasOwnProperty("count") && parameters.count === true;
 
     // Function to validate and sanitize limit and offset
     function validateAndSanitize(value, defaultValue) {
@@ -88,22 +94,10 @@ my_code: try {
         parameters.connector_name
     ];
 
-    //echo(parameters);
-    //	var sql = "SELECT `fridge_message_history_id`, `message_id`, \
-    //			        `send_state`, `transmit_time`, \
-    //			       `maps`, `inserted`\
-    //			FROM `fridge_message_history`\
-    //			WHERE `channel_name` = 'TO HILLROM ADT CR' \
-    //			  AND `connector_name` = 'Source' \
-    //			ORDER BY `inserted` DESC\
-    //			LIMIT 15 \
-    //			OFFSET 0;";
-    var sql = "SELECT `fridge_message_history_id`, `message_id`, \
-			        `send_state`, `transmit_time`, \
-			       `maps`, `inserted`\
-			FROM `fridge_message_history` \
-			WHERE `channel_name` = ? \
-			  AND `connector_name` = ? ";
+    var sql = "SELECT " + (countOnly ? "COUNT(*) AS total_count" : "`fridge_message_history_id`, `message_id`, `send_state`, `transmit_time`, `maps`, `inserted`") + " \
+               FROM `fridge_message_history` \
+               WHERE `channel_name` = ? \
+                 AND `connector_name` = ? ";
 
     // Add conditions for start_time and end_time if provided
     if (parameters.start_time) {
@@ -121,14 +115,12 @@ my_code: try {
         queryParams = queryParams.concat(parameters.send_state);
     }
 
-    // need string contains here
     // Add condition for text_search if provided
     if (parameters.text_search) {
         sql += " AND `message` LIKE ? ";
         queryParams.push('%' + parameters.text_search + '%');
     }
 
-    // Add conditions for JSON filters if provided
     // Add conditions for JSON filters if provided
     if (parameters.filters && Array.isArray(parameters.filters) && parameters.filters.length > 0) {
         parameters.filters.forEach(function (filter) {
@@ -175,30 +167,37 @@ my_code: try {
         });
     }
 
+    if (!countOnly) {
+        sql += " ORDER BY `inserted` DESC \
+                 LIMIT " + limit + " \
+                 OFFSET " + offset + ";";
+    }
 
+    //echo(sql);
+    //echo(queryParams);
 
-    sql += "	ORDER BY `inserted` DESC \
-			LIMIT "+ limit + " \
-			OFFSET "+ offset + ";";
-
-    echo(sql);
-    echo(queryParams);
     var result = db_exec("dbMirthExt", sql, {
         query_parameters: queryParams
     });
-    var headers = [];
-    while (result && result.next()) {
 
-        headers.push({
-            fridge_message_history_id: parseInt(result.getString('fridge_message_history_id')),
-            message_id: parseInt(result.getString('message_id')),
-            send_state: result.getString('send_state'),
-            transmit_time: parseInt(result.getString('transmit_time')),
-            //maps:result.getString('maps'),
-            inserted: result.getString('inserted'),
-        });
+    if (countOnly) {
+        if (result && result.next()) {
+            json.total_count = result.getInt('total_count');
+        }
+    } else {
+        var headers = [];
+        while (result && result.next()) {
+            headers.push({
+                fridge_message_history_id: parseInt(result.getString('fridge_message_history_id')),
+                message_id: parseInt(result.getString('message_id')),
+                send_state: result.getString('send_state'),
+                transmit_time: parseInt(result.getString('transmit_time')),
+                //maps:result.getString('maps'),
+                inserted: result.getString('inserted'),
+            });
+        }
+        json.headers = headers;
     }
-    json.headers = headers;
 
 } catch (error) {
     json.error = error;

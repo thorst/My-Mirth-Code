@@ -26,6 +26,7 @@ function fridgeResponseTransformer() {
         // We have a `serverInstallDir` stored in the configuration map, because we may have
         // different roots depending on the version of the installation.
 
+
         var serverInstallDir = $cfg("serverRoot");
         var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge";
 
@@ -37,6 +38,9 @@ function fridgeResponseTransformer() {
         connectorId = connectorMessage.getMetaDataId();
         //channelName already declared
 
+        // The status gets set after this, so we will put it in for you
+        responseMap.put('d' + connectorId + "_response_status", connectorMessage.getResponseData());
+
         // Determine where to save the file and Open file for writing
         var fileName = dir + "/" + channelName + "." + messageId + ".destination." + connectorId + ".json";
 
@@ -45,17 +49,17 @@ function fridgeResponseTransformer() {
             channelId: channelId,
             channelName: channelName,
             messageId: messageId,
-            mapChannel: null,
-            mapResponse: null,
+            mapChannel: mapParse(channelMap),
+            mapResponse: mapParse(connectorMessage.getResponseMap()),
             connectors: [{
                 connectorId: connectorId,
                 connectorName: connector,
                 processingState: stringFromJava(responseStatus),
                 message: connectorMessage.getEncodedData(),
                 transmitDate: connectorMessage.getSendDate().getTimeInMillis(),
-                mapConnector: mapParse(connectorMessage.getConnectorMap()),
+                mapConnector: mapParse(connectorMap),
                 mapSource: null,
-                response: msg,
+                response: response.getMessage(),
             }]
         };
 

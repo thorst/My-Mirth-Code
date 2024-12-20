@@ -25,6 +25,11 @@ With this we can upgrade postgres quicker due to a smaller db size, have message
 * Could potentially use a mirrored db, but then it would be the full db
 * Granular message storage would help reduce the size of the db, but doesn't exist yet https://github.com/nextgenhealthcare/connect/issues/6255
 
+## Limitations of Solution:
+* The source map is not available on the response transformer, so you can only search on source map data if you are seraching the database 
+* 
+
+
 
 ## Components:
 1. Global Post Processor Code Template - This will save the inbound raw message

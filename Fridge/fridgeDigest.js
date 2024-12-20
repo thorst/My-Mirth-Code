@@ -1,3 +1,23 @@
+/*
+    The first half deals with inserting the transaction into the fridge.
+        For the insert, we only insert the data from the first connector.
+        This works because on the global post processor, the source is always 
+        the first connector. And then we are saying that if you want to save
+        the destinations ack or message you need to use the response transformer
+        code template. If the message is coming from the response map, it will
+        only contain one connector, and it will be the one which pertains to that
+        instance of the message.
+
+
+    The second half deals with inserting the activity for each connector.
+        This loops over all the destinations, but if the destination is set to queue
+        its just an estimated sent date. To get the actual sent dateimttime you need
+        to use the respons transformer code template.
+
+
+*/
+
+
 
 var debug = false;
 

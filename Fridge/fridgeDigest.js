@@ -116,14 +116,14 @@ msg.connectors.forEach(function (conn) {
     // to the query
     if (typeof conn.transmitDate != "undefined" && conn.transmitDate != 0) {
         activityParam.push(Math.floor(conn.transmitDate / 1000));
-        duplicate_list += " actual_transmit = CASE WHEN VALUES(actual_transmit) > actual_transmit THEN VALUES(actual_transmit) ELSE actual_transmit END, ";
+        duplicate_list += " actual_transmit = VALUES(actual_transmit), ";
         field_list += ", actual_transmit";
         value_list += ",?";
     }
 
     if (typeof conn.estimatedDate != "undefined" && conn.estimatedDate != 0) {
         activityParam.push(Math.floor(conn.estimatedDate / 1000));
-        duplicate_list += " estimated_transmit = CASE WHEN VALUES(estimated_transmit) > estimated_transmit THEN VALUES(estimated_transmit) ELSE estimated_transmit END, ";
+        duplicate_list += " estimated_transmit = VALUES(estimated_transmit), ";
         field_list += ", estimated_transmit";
         value_list += ",?";
     }
@@ -134,10 +134,8 @@ msg.connectors.forEach(function (conn) {
 	                    VALUES \
 	                        ("+ value_list + ") \
 	                    ON DUPLICATE KEY UPDATE \
-	                        channel_name = VALUES(channel_name), \
-	                        connector_name = VALUES(connector_name), \
 	                        " + duplicate_list + " \
-	                        updated = CASE WHEN VALUES(actual_transmit) > actual_transmit OR VALUES(estimated_transmit) > estimated_transmit THEN NOW() ELSE updated END;";
+	                        updated = NOW();";
 
     if (debug) {
         echo("About to insert connector activity.");

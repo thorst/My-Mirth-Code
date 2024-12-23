@@ -31,14 +31,29 @@ function mapParse(arg1) {
     }
     return obj;
 }
+function generateRandomNumber(max) {
+    return Math.floor(Math.random() * (max + 1));
+}
+
+// Function to create a directory if it doesn't exist
+function createDirectoryIfNotExists(directory) {
+    var file = new java.io.File(directory);
+    if (!file.exists()) {
+        file.mkdirs();
+    }
+}
 try {
+
+    var thread_count = 10;
+    var destination_dir = generateRandomNumber(thread_count);
 
 
     // Where we should save the files
     // We have a `serverInstallDir` stored in the configuration map, because we may have
     // different roots depending on the version of the installation.
     var serverInstallDir = $cfg("serverRoot");
-    var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge";
+    var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge/" + destination_dir;
+    createDirectoryIfNotExists(dir);
 
 
     // Create a list of channels to exclude from saving
@@ -56,7 +71,7 @@ try {
     ];
 
 
-    var startTime = new Date().getTime();
+    //var startTime = new Date().getTime();
 
     // Get the channel info
     var channelId = message.getChannelId();
@@ -141,8 +156,8 @@ try {
 
     } // End iterator
 
-    var endTime = new Date().getTime();
-    saveObj.executionTime = endTime - startTime;
+    //var endTime = new Date().getTime();
+    //saveObj.executionTime = endTime - startTime;
 
     // Save the file
     var jsonString = JSON.stringify(saveObj);

@@ -16,19 +16,27 @@
     We also have access to responseStatusMessage and responseErrorMessage in this 
     scope if needed.
 */
+
 function fridgeResponseTransformer() {
     // Init information on message and connector
     var messageId = "";
     var connectorId = "";
 
     try {
+
+
+        var thread_count = 10;
+        var destination_dir = numberRandomInt(0, thread_count);
+
+
         // Where we should save the files
         // We have a `serverInstallDir` stored in the configuration map, because we may have
         // different roots depending on the version of the installation.
 
 
         var serverInstallDir = $cfg("serverRoot");
-        var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge";
+        var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge/" + destination_dir;
+        dirCreateIfNotExists(dir);
 
         // Start the timer
         timerStart("conn" + connectorId);

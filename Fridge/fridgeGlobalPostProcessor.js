@@ -27,11 +27,10 @@
 function mapParse(arg1) {
     var obj = {};
     for (var e in Iterator(arg1.entrySet())) {
-        obj[e.key] = e.value;
+        obj[e.key] = String(e.value);
     }
     return obj;
 }
-
 try {
 
 

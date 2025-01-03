@@ -1,5 +1,6 @@
 {
-    "parent_directory": "/path/to/parent_directory",
+    "process_directory": "/path/to/process_directory",
+    "error_directory": "/path/to/error_directory",
     "db_config": {
         "host": "localhost",
         "database": "your_database",

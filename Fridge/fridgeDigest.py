@@ -1,39 +1,27 @@
-"""
-Script to process files in directories and insert their contents into a MariaDB database.
-
-Requirements:
-- Python 3.6.8
-- mysqlclient
-
-Install the required packages using:
-    pip install mysqlclient
-
-Configuration:
-- Ensure the `db_config.json` file is in the same directory as this script and contains the database connection details and the parent directory path.
-
-Cron Example:
-To run this script every minute using cron, add the following line to your crontab:
-    * * * * * /usr/bin/python3 /path/to/your_script.py
-"""
-
 import os
 import threading
 import MySQLdb
 import json
 import fcntl
 import time
+from datetime import datetime, time as dt_time
+import shutil
 
 # Configuration
 CONFIG_FILE = 'db_config.json'
 LOCK_FILE = '/tmp/fridge_digest.lock'
 MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
+RETRY_DELAY = 1  # seconds
 
 def load_config(config_file):
     with open(config_file, 'r') as file:
         return json.load(file)
 
-def process_directory(directory, db_config):
+def process_directory(directory, config):
+    db_config = config['db_config']
+    error_directory = config['error_directory']
+    os.makedirs(error_directory, exist_ok=True)
+    
     try:
         connection = MySQLdb.connect(
             host=db_config['host'],
@@ -56,7 +44,16 @@ def process_directory(directory, db_config):
                 
                 with open(filepath, 'r', encoding='utf-8') as file:
                     content = file.read()
-                    msg = json.loads(content)
+                    if not content.strip():
+                        print(f"Skipping empty file: {filename}")
+                        continue
+                    
+                    try:
+                        msg = json.loads(content)
+                    except json.JSONDecodeError as e:
+                        print(f"Error decoding JSON from file {filename}: {e}")
+                        shutil.move(filepath, os.path.join(error_directory, filename))
+                        continue
                     
                     # Convert the maps to one JSON object
                     mapLoop = {
@@ -149,18 +146,19 @@ def main():
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError:
-            print("Another instance is already running. Exiting.")
+            current_time = datetime.now().time()
+            if not (dt_time(0, 0) <= current_time <= dt_time(2, 30)):
+                print("Another instance is already running. Exiting.")
             return
         
         config = load_config(CONFIG_FILE)
-        parent_directory = config['parent_directory']
-        db_config = config['db_config']
+        process_dir = config['process_directory']  # Renamed variable to avoid conflict
         threads = []
         
-        for child_directory in os.listdir(parent_directory):
-            directory_path = os.path.join(parent_directory, child_directory)
+        for child_directory in os.listdir(process_dir):
+            directory_path = os.path.join(process_dir, child_directory)
             if os.path.isdir(directory_path):
-                thread = threading.Thread(target=process_directory, args=(directory_path, db_config))
+                thread = threading.Thread(target=process_directory, args=(directory_path, config))
                 threads.append(thread)
                 thread.start()
         

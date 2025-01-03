@@ -4,7 +4,7 @@ import MySQLdb
 import json
 import fcntl
 import time
-from datetime import datetime, time as dt_time
+from datetime import datetime, timedelta, time as dt_time
 import shutil
 
 # Configuration
@@ -12,10 +12,16 @@ CONFIG_FILE = 'db_config.json'
 LOCK_FILE = '/tmp/fridge_digest.lock'
 MAX_RETRIES = 3
 RETRY_DELAY = 1  # seconds
+FILE_AGE_THRESHOLD = 1  # seconds
 
 def load_config(config_file):
     with open(config_file, 'r') as file:
         return json.load(file)
+
+def is_file_old_enough(filepath, threshold):
+    file_mtime = os.path.getmtime(filepath)
+    file_age = time.time() - file_mtime
+    return file_age > threshold
 
 def process_directory(directory, config):
     db_config = config['db_config']
@@ -40,6 +46,10 @@ def process_directory(directory, config):
             for filename in files:
                 filepath = os.path.join(directory, filename)
                 if not os.path.isfile(filepath):
+                    continue
+                
+                if not is_file_old_enough(filepath, FILE_AGE_THRESHOLD):
+                    # print(f"Skipping file not old enough: {filename}")
                     continue
                 
                 with open(filepath, 'r', encoding='utf-8') as file:

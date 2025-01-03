@@ -10,9 +10,10 @@ import shutil
 # Configuration
 CONFIG_FILE = 'db_config.json'
 LOCK_FILE = '/tmp/fridge_digest.lock'
-MAX_RETRIES = 3
+SQL_MAX_RETRIES = 3
+DIR_MAX_LOOPS = 3
 RETRY_DELAY = 1  # seconds
-FILE_AGE_THRESHOLD = 1  # seconds
+FILE_AGE_THRESHOLD = 4  # seconds (adjust as needed)
 
 def load_config(config_file):
     with open(config_file, 'r') as file:
@@ -38,7 +39,7 @@ def process_directory(directory, config):
         )
         cursor = connection.cursor()
         
-        while True:
+        for dirloop in range(DIR_MAX_LOOPS):
             files = os.listdir(directory)
             if not files:
                 break
@@ -84,7 +85,7 @@ def process_directory(directory, config):
                             })
                     
                     # Retry logic for handling deadlocks
-                    for attempt in range(MAX_RETRIES):
+                    for attempt in range(SQL_MAX_RETRIES):
                         try:
                             # Build query to insert the message into the fridge
                             sql = """
@@ -135,7 +136,7 @@ def process_directory(directory, config):
                             break  # Exit the retry loop if successful
                         except MySQLdb.Error as e:
                             if e.args[0] == 1213:  # Deadlock error code
-                                print(f"Deadlock detected. Retrying... (Attempt {attempt + 1}/{MAX_RETRIES})")
+                                print(f"Deadlock detected. Retrying... (Attempt {attempt + 1}/{SQL_MAX_RETRIES})")
                                 time.sleep(RETRY_DELAY)
                             else:
                                 raise  # Re-raise the exception if it's not a deadlock

@@ -157,9 +157,9 @@ def main():
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError:
-            current_time = datetime.now().time()
-            if not (dt_time(0, 0) <= current_time <= dt_time(2, 30)):
-                print("Another instance is already running. Exiting.")
+            #current_time = datetime.now().time()
+            #if not (dt_time(0, 0) <= current_time <= dt_time(2, 30)):
+                #print("Another instance is already running. Exiting.")
             return
         
         config = load_config(CONFIG_FILE)

@@ -1,4 +1,5 @@
 /*
+fridgeConnectorActivity
     WAPI API Tempalte 
     
     This is the template you should be using when you create a new destination
@@ -45,7 +46,7 @@ my_code: try {
     }
 
     // Define and execute query 
-    var sql = "SELECT * FROM `last_activity`;";
+    var sql = "SELECT * FROM `last_activity` order by channel_id;";
     var result = db_exec("dbMirthExt", sql);
 
     // Loop over each db record and show into an array of objects

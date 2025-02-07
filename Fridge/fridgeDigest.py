@@ -1,68 +1,69 @@
 import os
 import threading
-import MySQLdb
+import mysql.connector
 import json
 import fcntl
 import time
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime
 import shutil
 
-# Configuration
+# Configuration constants
 CONFIG_FILE = 'db_config.json'
 LOCK_FILE = '/tmp/fridge_digest.lock'
 SQL_MAX_RETRIES = 3
 DIR_MAX_LOOPS = 3
 RETRY_DELAY = 1  # seconds
-FILE_AGE_THRESHOLD = 4  # seconds (adjust as needed)
+FILE_AGE_THRESHOLD = 4  # seconds
+BATCH_SIZE = 100
 
+# Load configuration from a JSON file
 def load_config(config_file):
     with open(config_file, 'r') as file:
         return json.load(file)
 
+# Check if a file is older than a given threshold
 def is_file_old_enough(filepath, threshold):
     file_mtime = os.path.getmtime(filepath)
     file_age = time.time() - file_mtime
     return file_age > threshold
 
-def process_directory(directory, config):
+# Process files in a directory and insert data into the database
+def process_directory(directory, config, last_activity_dict):
     db_config = config['db_config']
     error_directory = config['error_directory']
     os.makedirs(error_directory, exist_ok=True)
-    
+
     try:
-        connection = MySQLdb.connect(
+        # Connect to the database
+        connection = mysql.connector.connect(
             host=db_config['host'],
-            db=db_config['database'],
+            database=db_config['database'],
             user=db_config['user'],
-            passwd=db_config['password'],
+            password=db_config['password'],
             charset='utf8mb4'
         )
         cursor = connection.cursor()
-        
+
         for dirloop in range(DIR_MAX_LOOPS):
             files = os.listdir(directory)
             if not files:
                 break
+
+            bulk_insert_data = []
             
             for filename in files:
                 filepath = os.path.join(directory, filename)
-                if not os.path.isfile(filepath):
+                if not os.path.isfile(filepath) or not is_file_old_enough(filepath, FILE_AGE_THRESHOLD):
                     continue
-                
-                if not is_file_old_enough(filepath, FILE_AGE_THRESHOLD):
-                    # print(f"Skipping file not old enough: {filename}")
-                    continue
-                
+
                 with open(filepath, 'r', encoding='utf-8') as file:
                     content = file.read()
                     if not content.strip():
-                        print(f"Skipping empty file: {filename}")
                         continue
-                    
+
                     try:
                         msg = json.loads(content)
-                    except json.JSONDecodeError as e:
-                        print(f"Error decoding JSON from file {filename}: {e}")
+                    except json.JSONDecodeError:
                         shutil.move(filepath, os.path.join(error_directory, filename))
                         continue
                     
@@ -83,98 +84,123 @@ def process_directory(directory, config):
                                 "v": str(v),
                                 "map": map_name
                             })
-                    
-                    # Retry logic for handling deadlocks
-                    for attempt in range(SQL_MAX_RETRIES):
-                        try:
-                            # Build query to insert the message into the fridge
-                            sql = """
-                            INSERT INTO fridge_message_history (
-                                message_id, channel_id, channel_name, connector_id, 
-                                connector_name, send_state, transmit_time, maps, message, response
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-                            """
-                            cursor.execute(sql, (
-                                msg["messageId"], msg["channelId"], msg["channelName"], 
-                                msg["connectors"][0]["connectorId"], msg["connectors"][0]["connectorName"], 
-                                msg["connectors"][0]["processingState"], 
-                                msg["connectors"][0]["transmitDate"] / 1000, 
-                                json.dumps(maps), msg["connectors"][0]["message"], 
-                                msg["connectors"][0]["response"]
-                            ))
-                            
-                            for conn in msg["connectors"]:
-                                field_list = "channel_id, channel_name, connector_id, connector_name, updated"
-                                value_list = "%s, %s, %s, %s, NOW()"
-                                duplicate_list = ""
-                                
-                                values = [
-                                    msg['channelId'], msg['channelName'], conn['connectorId'], conn['connectorName']
-                                ]
-                                
-                                if "transmitDate" in conn and conn["transmitDate"] != 0:
-                                    field_list += ", actual_transmit"
-                                    value_list += ", %s"
-                                    duplicate_list += " actual_transmit = VALUES(actual_transmit), "
-                                    values.append(conn['transmitDate'] / 1000)
-                                
-                                if "estimatedDate" in conn and conn["estimatedDate"] != 0:
-                                    field_list += ", estimated_transmit"
-                                    value_list += ", %s"
-                                    duplicate_list += " estimated_transmit = VALUES(estimated_transmit), "
-                                    values.append(conn['estimatedDate'] / 1000)
-                                
-                                sql = f"""
-                                INSERT INTO last_activity ({field_list}) 
-                                VALUES ({value_list}) 
-                                ON DUPLICATE KEY UPDATE {duplicate_list} updated = NOW();
-                                """
-                                cursor.execute(sql, values)
-                            
-                            # Commit the transaction
-                            connection.commit()
-                            break  # Exit the retry loop if successful
-                        except MySQLdb.Error as e:
-                            if e.args[0] == 1213:  # Deadlock error code
-                                print(f"Deadlock detected. Retrying... (Attempt {attempt + 1}/{SQL_MAX_RETRIES})")
-                                time.sleep(RETRY_DELAY)
-                            else:
-                                raise  # Re-raise the exception if it's not a deadlock
-                    
-                # Delete the file after processing
+
+                    # Prepare data for bulk insert
+                    for conn in msg["connectors"]:
+                        if conn["connectorId"] > 0:
+                            break
+                        
+                        bulk_insert_data.append((
+                            msg["messageId"], msg["channelId"], msg["channelName"],
+                            conn["connectorId"], conn["connectorName"],
+                            conn["processingState"],
+                            conn["transmitDate"] / 1000,
+                            json.dumps(maps), conn["message"],
+                            conn["response"]
+                        ))
+
+                    # Update last activity dictionary
+                    for conn in msg["connectors"]:
+                        key = f"{msg['channelName']}|{conn['connectorName']}"
+                        last_activity_dict[key] = (
+                            msg['channelId'], msg['channelName'], conn['connectorId'], conn['connectorName'],
+                            conn['transmitDate'] / 1000 if "transmitDate" in conn and conn["transmitDate"] != 0 else None,
+                            conn['estimatedDate'] / 1000 if "estimatedDate" in conn and conn["estimatedDate"] != 0 else 0
+                        )
+                
                 os.remove(filepath)
-        
-    except MySQLdb.Error as e:
-        print("Error: {}".format(e))
+
+            if bulk_insert_data:
+                execute_bulk_insert(connection, cursor, bulk_insert_data)
+
+    except mysql.connector.Error as e:
+        print("Error:", e)
     finally:
         if connection:
             cursor.close()
             connection.close()
 
+# Execute bulk insert into the database
+def execute_bulk_insert(connection, cursor, bulk_insert_data):
+    for attempt in range(SQL_MAX_RETRIES):
+        try:
+            sql = """
+            INSERT INTO fridge_message_history (
+                message_id, channel_id, channel_name, connector_id,
+                connector_name, send_state, transmit_time, maps, message, response
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+            """
+            cursor.executemany(sql, bulk_insert_data)
+            connection.commit()
+            break
+        except mysql.connector.Error as e:
+            if e.errno in [1213, 1206]:  # Deadlock or lock wait timeout
+                time.sleep(RETRY_DELAY * (2 ** attempt))
+            else:
+                raise
+
+# Execute bulk update of last activity into the database
+def execute_bulk_last_activity(connection, cursor, last_activity_dict):
+    bulk_data = list(last_activity_dict.values())
+    for attempt in range(SQL_MAX_RETRIES):
+        try:
+            sql = """
+            INSERT INTO last_activity (channel_id, channel_name, connector_id, connector_name, actual_transmit, estimated_transmit, updated)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE 
+                actual_transmit = VALUES(actual_transmit), 
+                estimated_transmit = VALUES(estimated_transmit), 
+                updated = NOW();
+            """
+            cursor.executemany(sql, bulk_data)
+            connection.commit()
+            break
+        except mysql.connector.Error as e:
+            if e.errno in [1213, 1206]:  # Deadlock or lock wait timeout
+                time.sleep(RETRY_DELAY * (2 ** attempt))
+            else:
+                raise
+
+# Main function to coordinate the processing
 def main():
-    # Create a lock file to prevent multiple instances
     with open(LOCK_FILE, 'w') as lock_file:
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError:
-            #current_time = datetime.now().time()
-            #if not (dt_time(0, 0) <= current_time <= dt_time(2, 30)):
-                #print("Another instance is already running. Exiting.")
             return
-        
+
         config = load_config(CONFIG_FILE)
-        process_dir = config['process_directory']  # Renamed variable to avoid conflict
+        process_dir = config['process_directory']
+        last_activity_dict = {}
         threads = []
-        
+
+        # Create and start threads for each subdirectory
         for child_directory in os.listdir(process_dir):
             directory_path = os.path.join(process_dir, child_directory)
             if os.path.isdir(directory_path):
-                thread = threading.Thread(target=process_directory, args=(directory_path, config))
+                thread = threading.Thread(target=process_directory, args=(directory_path, config, last_activity_dict))
                 threads.append(thread)
                 thread.start()
-        
+
+        # Wait for all threads to complete
         for thread in threads:
             thread.join()
+
+        try:
+            # Connect to the database and update last activity
+            connection = mysql.connector.connect(
+                host=config['db_config']['host'],
+                database=config['db_config']['database'],
+                user=config['db_config']['user'],
+                password=config['db_config']['password'],
+                charset='utf8mb4'
+            )
+            cursor = connection.cursor()
+            execute_bulk_last_activity(connection, cursor, last_activity_dict)
+        finally:
+            if connection:
+                cursor.close()
+                connection.close()
 
 if __name__ == "__main__":
     main()

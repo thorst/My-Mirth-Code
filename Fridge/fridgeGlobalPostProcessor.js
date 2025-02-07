@@ -15,34 +15,36 @@
             sent date and time. Instead I will only be able to save the time it was received. You will have the option
             to include a code template on the response transformer for any destinations where you need the ack or actual
             sent datetime.
-
-    Potential additions:
-        -Add filter for channel readers, where I dont save the raw, since that could be found on the sending destination <- more effort than its worth
-        -Add option to include destination data, for people who dont use queue and/or dont care about the sent datetime etc <- this is outdated, i do this now
+        -I cannot save the ack that we send back on the source connector unless you generate it with the ack() code template.
+                This is because the ack is generated after the post processesor and the global post processor. You may be able
+                to get around this by setting the source to queued and autogenerate before processing, but I think this only works
+                with hl7 data type. If your using raw i think the autogenerate is just empty. There is a User API ACK Generator 
+                that basically does the same thing as the auto generator, so you would need to plop that into the ack response 
+                map value, and not use the auto generate
 
     	
 */
 
 // mapParse is a code template, but since this script is self-contained with no code library dependencies, Im including here.
-function mapParse(arg1) {
-    var obj = {};
-    for (var e in Iterator(arg1.entrySet())) {
-        obj[e.key] = String(e.value);
-    }
-    return obj;
-}
-function generateRandomNumber(max) {
-    return Math.floor(Math.random() * (max + 1));
-}
 
-// Function to create a directory if it doesn't exist
-function createDirectoryIfNotExists(directory) {
-    var file = new java.io.File(directory);
-    if (!file.exists()) {
-        file.mkdirs();
-    }
-}
 try {
+
+    function mapParse(arg1) {
+        var obj = {};
+        for (var e in Iterator(arg1.entrySet())) {
+            obj[e.key] = String(e.value);
+        }
+        return obj;
+    }
+    function generateRandomNumber(max) {
+        return Math.floor(Math.random() * (max + 1));
+    }
+    function createDirectoryIfNotExists(directory) {
+        var file = new java.io.File(directory);
+        if (!file.exists()) {
+            file.mkdirs();
+        }
+    }
 
     var thread_count = 10;
     var destination_dir = generateRandomNumber(thread_count);
@@ -53,7 +55,7 @@ try {
     // different roots depending on the version of the installation.
     var serverInstallDir = $cfg("serverRoot");
     var dir = serverInstallDir + "/mirthconnect/_in/channels/system/fridge/" + destination_dir;
-    createDirectoryIfNotExists(dir);
+
 
 
     // Create a list of channels to exclude from saving
@@ -66,12 +68,12 @@ try {
     // Create a list of channels to include for saving
     var shouldIncludeChannels = false;
     var includeChannels = [
-        "Channel 3",
+        "TestV2Test Middle",
+        "TestV2Test Middle 2",
         "Channel 4"
     ];
 
 
-    //var startTime = new Date().getTime();
 
     // Get the channel info
     var channelId = message.getChannelId();
@@ -86,6 +88,10 @@ try {
     }
 
 
+    // Create directory after we know whether we are actually continuing
+    // Doesnt really matter in normal conditions, but in testing, its nice
+    // to not create all the directories
+    createDirectoryIfNotExists(dir);
 
 
     // Get the message ID
@@ -104,16 +110,17 @@ try {
         connectors: []
     };
 
-    // Iterator for looping over this message for all connectors
-    var iterator = message.getConnectorMessages().entrySet().iterator();
-    while (iterator.hasNext()) {
+    var connectorEntries = message.getConnectorMessages().entrySet().toArray();
 
-        // Get record, and the state of the message
-        var record = iterator.next();
+    // Now iterate over the snapshot
+    for (var i = 0; i < connectorEntries.length; i++) {
+        var record = connectorEntries[i];
         var connector = record.getValue();
         var connectorId = record.getKey();
         var connectorName = connector.getConnectorName();
         var processingState = connector.getStatus() + ''; // coerce to string
+        var ReceivedDate = connector.getReceivedDate().getTimeInMillis();
+        var SendDate = connector.getSendDate();
 
         if (connectorName == "Source") {
 
@@ -122,20 +129,45 @@ try {
             saveObj.mapChannel = mapParse(connector.getChannelMap());
             saveObj.mapResponse = mapParse(connector.getResponseMap());
 
-            saveObj.connectors.push({
-                connectorId: connectorId,
-                connectorName: connectorName,
-                processingState: processingState,
-                message: connector.getRawData(),
-                transmitDate: connector.getReceivedDate().getTimeInMillis(),
-                estimatedDate: connector.getReceivedDate().getTimeInMillis(),
-                mapConnector: mapParse(connector.getConnectorMap()),
-                mapSource: mapParse(connector.getSourceMap()),
+            var ConnectorMap = mapParse(connector.getConnectorMap());
+            var SourceMap = mapParse(connector.getSourceMap());
 
+            // The raw data is always available
+            var raw = connector.getRawData();
+            saveObj.connectors.push({
+                connectorId: -1,
+                connectorName: "RawSource",
+                processingState: "RECEIVED",
+                message: raw,
+                transmitDate: ReceivedDate,
+                estimatedDate: ReceivedDate,
+                mapConnector: ConnectorMap,
+                mapSource: SourceMap,
                 response: response && response.getContent ? response.getContent() : "",
             });
 
-            // Exist current loop
+            if (response && response.getContent) {
+                logger.info("Response found in global post processor");
+                logger.info(response.getContent());
+            }
+
+            // Available in most cases, except when message is filtered
+            var encoded = connector.getEncodedData();
+            if (encoded != null) {
+                saveObj.connectors.push({
+                    connectorId: connectorId,
+                    connectorName: connectorName,
+                    processingState: processingState,
+                    message: encoded,
+                    transmitDate: ReceivedDate,
+                    estimatedDate: ReceivedDate,
+                    mapConnector: null,
+                    mapSource: null,
+                    response: null,
+                });
+            }
+
+            // Exit current loop
             continue;
         }
 
@@ -146,8 +178,8 @@ try {
             connectorName: connectorName,
             processingState: processingState,
             message: null,
-            transmitDate: connector.getSendDate() ? connector.getSendDate().getTimeInMillis() : 0,
-            estimatedDate: connector.getReceivedDate().getTimeInMillis(),
+            transmitDate: SendDate ? SendDate.getTimeInMillis() : 0,
+            estimatedDate: ReceivedDate,
             mapConnector: null,
             mapSource: null,
             response: null
@@ -156,8 +188,7 @@ try {
 
     } // End iterator
 
-    //var endTime = new Date().getTime();
-    //saveObj.executionTime = endTime - startTime;
+
 
     // Save the file
     var jsonString = JSON.stringify(saveObj);

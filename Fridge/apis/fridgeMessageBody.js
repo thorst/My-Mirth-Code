@@ -50,21 +50,32 @@ my_code: try {
     }
 
     // Required Parameters
-    if (!parameters.hasOwnProperty("fridge_message_history_id")) {
+    //    if (!parameters.hasOwnProperty("fridge_message_history_id")) {
+    //        throw new Error("Required parameters not set.");
+    //    }
+
+    if (!parameters.hasOwnProperty("metaDataId")) {
+        throw new Error("Required parameters not set.");
+    }
+    if (!parameters.hasOwnProperty("message_id")) {
+        throw new Error("Required parameters not set.");
+    }
+    if (!parameters.hasOwnProperty("channel_name")) {
         throw new Error("Required parameters not set.");
     }
 
 
-
     // Prepare the query parameters
     var queryParams = [
-        parameters.fridge_message_history_id,
+        parameters.message_id,
+        parameters.channel_name,
+        parameters.metaDataId,
     ];
 
 
-    var sql = "SELECT `message`, `maps`,  `response` \
+    var sql = "SELECT `message`, `maps`,  `response`, `connector_id`, `connector_name` \
 			FROM `fridge_message_history` \
-			WHERE `fridge_message_history_id` = ? ; ";
+			WHERE `message_id` = ? AND `channel_name` = ? AND connector_id IN (-1,0,?) ; ";
 
 
 
@@ -77,20 +88,18 @@ my_code: try {
     echo(queryParams);
 
 
-    var body = {
-        message: "",
-        maps: "",
-        response: ""
-    };
+    var bodies = [];
     while (result && result.next()) {
 
-        body = {
+        bodies.push({
             message: result.getString('message'),
             maps: result.getString('maps'),
             response: result.getString('response'),
-        };
+            connector_id: parseInt(result.getString('connector_id')),
+            connector_name: result.getString('connector_name'),
+        });
     }
-    json.body = body;
+    json.bodies = bodies;
 
 } catch (error) {
     json.error = error;

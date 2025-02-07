@@ -168,14 +168,14 @@ my_code: try {
     }
 
     if (!countOnly) {
-        sql += " ORDER BY `inserted` DESC \
+        sql += " ORDER BY `message_id` DESC \
                  LIMIT " + limit + " \
                  OFFSET " + offset + ";";
     }
 
-    //echo(sql);
-    //echo(queryParams);
-
+    //    echo(sql);
+    //    echo(queryParams);
+    //return true;
     var result = db_exec("dbMirthExt", sql, {
         query_parameters: queryParams
     });
@@ -192,7 +192,7 @@ my_code: try {
                 message_id: parseInt(result.getString('message_id')),
                 send_state: result.getString('send_state'),
                 transmit_time: parseInt(result.getString('transmit_time')),
-                //maps:result.getString('maps'),
+                maps: result.getString('maps'),
                 inserted: result.getString('inserted'),
             });
         }

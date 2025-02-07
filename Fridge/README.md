@@ -24,6 +24,12 @@ With this we can upgrade postgres quicker due to a smaller db size, have message
 * Scraping the database directly is possible but messy and suffers from triggering issues and how long it executes as its bulk loading
 * Could potentially use a mirrored db, but then it would be the full db
 * Granular message storage would help reduce the size of the db, but doesn't exist yet https://github.com/nextgenhealthcare/connect/issues/6255
+* You do not have access to the auto-generated ack for HL7 data-type source connectors. The ack may be generated after both the post processor and global post processor. This doesnt entirely make sense
+to me because you can choose to generate BEFORE processesing. If you set source the queue, that is the only ack option, you cannot even choose your own generated ack. There is a java User API to generate
+acks, which probably is whats behind the scenes for that auto-generate feature.
+* `var raw = connector.getRawData();` is always available 
+* `var transformed = connector.getTransformedData();` is only available if there is a filter/transformer on the source
+* `var encoded = connector.getEncodedData();` is only available if the message wasnt filtered
 
 ## Limitations of Solution:
 * The source map is not available on the response transformer, so you can only search on source map data if you are seraching the database 

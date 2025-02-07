@@ -12,9 +12,11 @@ CREATE TABLE `fridge_message_history` (
 	`response` MEDIUMTEXT NULL DEFAULT NULL COLLATE 'utf8mb4_unicode_ci',
 	`inserted` TIMESTAMP NOT NULL DEFAULT current_timestamp(),
 	PRIMARY KEY (`fridge_message_history_id`) USING BTREE,
-	INDEX `idx_fridge_message_history_channel_connector_inserted` (`channel_name`, `connector_name`, `message_id`) USING BTREE
+	INDEX `idx_fridge_message_history_channel_connector_inserted` (`channel_name`, `connector_name`, `message_id`) USING BTREE,
+	INDEX `idx_fridge_message_history_inserted` (`channel_name`, `connector_name`, `inserted` DESC) USING BTREE,
+	INDEX `idx_fridge_message_history_message_id` (`message_id`, `channel_name`, `connector_id`) USING BTREE
 )
 COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB
-AUTO_INCREMENT=448
+AUTO_INCREMENT=4820594
 ;

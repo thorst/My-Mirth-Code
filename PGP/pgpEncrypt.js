@@ -16,9 +16,9 @@
  */
 
 /*
-   Read more about what to choose:
-   https://wellspan.sharepoint.com/sites/EnterpriseIntegration/_layouts/15/Doc.aspx?sourcedoc={f416ae9f-eda5-4642-a390-f7f591c5dbbf}&action=edit&wd=target%28DOCUMENTATION%2FMirth%2FDevelop.one%7Ce49fe617-f198-4220-8215-726c21d5f76a%2FDetermine%20Compression%20and%20Algorithm%7Cefa9defd-0cb2-4d9c-93cb-f6e7bb07d9ef%2F%29&wdorigin=NavigationUrl
-*/
+    Read more about what to choose:
+    https://wellspan.sharepoint.com/sites/EnterpriseIntegration/_layouts/15/Doc.aspx?sourcedoc={f416ae9f-eda5-4642-a390-f7f591c5dbbf}&action=edit&wd=target%28DOCUMENTATION%2FMirth%2FDevelop.one%7Ce49fe617-f198-4220-8215-726c21d5f76a%2FDetermine%20Compression%20and%20Algorithm%7Cefa9defd-0cb2-4d9c-93cb-f6e7bb07d9ef%2F%29&wdorigin=NavigationUrl
+ */
 /*
 In Bouncy Castle's org.bouncycastle.openpgp.PGPCompressedData, the compression methods are defined by the OpenPGP standard. Here are the available compression algorithms:
 
@@ -26,7 +26,7 @@ Uncompressed: No compression is applied.
 ZIP: Uses the ZIP compression algorithm.
 ZLIB: Uses the ZLIB compression algorithm.
 BZIP2: Uses the BZIP2 compression algorithm.
-*/
+ */
 /*
 In Bouncy Castle's org.bouncycastle.openpgp.PGPEncryptedData, the possible encryption algorithms are defined by the OpenPGP standard. Here are the supported symmetric encryption algorithms:
 
@@ -41,121 +41,124 @@ Twofish
 Camellia-128
 Camellia-192
 Camellia-256
-*/
+
+
+should be able to send in: "PGPEncryptedData.CAST5"
+ */
 function pgpEncrypt(settings) {
-    // Merge defaults with user-provided settings using Object.assign
+    // Define default settings
     var defaultSettings = {
-        input: null,
-        inputType: "string",
-        publicKeyPaths: null,
-        armor: false,
-        withIntegrityCheck: true,
-        compress: true,
-        compressionAlgorithm: org.bouncycastle.openpgp.PGPCompressedData.ZIP,
-        encryptionAlgorithm: org.bouncycastle.openpgp.PGPEncryptedData.CAST5,
-        outputDestination: "byteArray",
-        log: false
+        input: null, // Data to encrypt
+        inputType: "string", // Type of the input (string, filename, or byteArray)
+        publicKeyPaths: null, // Path(s) to public key files
+        armor: true, // Whether to use ASCII-armored output
+        withIntegrityCheck: true, // Add an integrity check
+        compress: true, // Enable compression
+        compressionAlgorithm: org.bouncycastle.openpgp.PGPCompressedData.ZIP, // Compression algorithm https://downloads.bouncycastle.org/java/docs/bcpg-jdk14-javadoc/org/bouncycastle/openpgp/PGPCompressedData.html
+        encryptionAlgorithm: org.bouncycastle.openpgp.PGPEncryptedData.CAST5, // Encryption algorithm https://downloads.bouncycastle.org/java/docs/bcpg-jdk15to18-javadoc/org/bouncycastle/openpgp/PGPEncryptedData.html
+        outputDestination: "string", // Output format: string, byteArray, or file path
     };
+
+    // Merge custom settings with defaults
     settings = Object.assign(defaultSettings, settings);
 
-    // Validate required settings
+    // Validate required inputs
     if (!settings.input || !settings.publicKeyPaths) {
         throw new Error("Input data and public key path(s) are required.");
     }
 
-    // Initialize BouncyCastle security provider
+    // Adjust compression settings if disabled
+    if (!settings.compress) {
+        settings.compressionAlgorithm = org.bouncycastle.openpgp.PGPCompressedData.UNCOMPRESSED;
+    }
+
+    // Add BouncyCastle security provider
     java.security.Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
 
-    // Log public key reading
-    if (settings.log) logger.info("Reading public key(s)...");
+    // Ensure publicKeyPaths is an array
+    var publicKeys = Array.isArray(settings.publicKeyPaths) ?
+        settings.publicKeyPaths : [settings.publicKeyPaths];
 
-    // Cache public keys in globalMap
-    if (!globalMap.containsKey("encryptionKeys")) {
-        $gc("encryptionKeys", {});
-    }
-    var encryptionKeys = $gc("encryptionKeys");
+    // Read public keys
+    var encryptionKeys = {};
+    publicKeys.forEach(function (keyPath) {
+        encryptionKeys[keyPath] = pgpReadPublicKey({
+            keyFilePath: keyPath
+        });
+    });
 
-    var PGPEncryptedDataGenerator = new org.bouncycastle.openpgp.PGPEncryptedDataGenerator(
-        new org.bouncycastle.openpgp.operator.jcajce.JcePGPDataEncryptorBuilder(settings.encryptionAlgorithm)
+    // Initialize encryption generator with integrity check and algorithm
+    var cPk = new org.bouncycastle.openpgp.PGPEncryptedDataGenerator(
+        new org.bouncycastle.openpgp.operator.jcajce.JcePGPDataEncryptorBuilder(3) // Use appropriate encryption algorithm constant
+            .setProvider("BC") // Set provider
             .setWithIntegrityPacket(settings.withIntegrityCheck)
-            .setSecureRandom(new java.security.SecureRandom())
-            .setProvider("BC")
     );
 
-    // Ensure publicKeyPaths is an array
-    var publicKeys = Array.isArray(settings.publicKeyPaths)
-        ? settings.publicKeyPaths
-        : [settings.publicKeyPaths];
-
-    // Add public keys to the encryption generator
+    // Add encryption methods for each public key
     publicKeys.forEach(function (keyPath) {
-        if (!encryptionKeys[keyPath]) {
-            var publicKey = pgpReadPublicKey({ keyFilePath: keyPath });
-            encryptionKeys[keyPath] = publicKey;
-        }
-        PGPEncryptedDataGenerator.addMethod(
-            new org.bouncycastle.openpgp.operator.jcajce.JcePublicKeyKeyEncryptionMethodGenerator(encryptionKeys[keyPath])
-                .setProvider("BC")
-                .setSecureRandom(new java.security.SecureRandom())
+        cPk.addMethod(
+            new org.bouncycastle.openpgp.operator.bc.BcPublicKeyKeyEncryptionMethodGenerator(encryptionKeys[keyPath])
         );
     });
 
-    // Convert input data to byte array
-    var inputBytes;
+    // Convert input to byte array based on input type
+    var clearData;
     switch (settings.inputType) {
         case "string":
-            inputBytes = java.lang.String(settings.input).getBytes("UTF-8");
+            clearData = java.lang.String(settings.input).getBytes("UTF-8");
             break;
         case "filename":
             var file = new java.io.File(settings.input);
-            inputBytes = java.nio.file.Files.readAllBytes(file.toPath());
+            if (!file.exists()) {
+                throw new Error("Input file does not exist: " + settings.input);
+            }
+            clearData = java.nio.file.Files.readAllBytes(file.toPath());
             break;
         case "byteArray":
-            inputBytes = settings.input;
+            clearData = settings.input;
             break;
         default:
-            throw new Error("Invalid input type.");
+            throw new Error("Invalid input type. Must be 'string', 'byteArray', or 'filename'.");
     }
 
-    // Optionally compress input data
-    if (settings.compress) {
-        if (settings.log) logger.info("Compressing data...");
-        var compressionStream = new java.io.ByteArrayOutputStream();
-        var compressedDataGenerator = new org.bouncycastle.openpgp.PGPCompressedDataGenerator(settings.compressionAlgorithm);
-        var compressionOut = compressedDataGenerator.open(compressionStream);
-        compressionOut.write(inputBytes);
-        compressionOut.close();
-        compressedDataGenerator.close();
-        inputBytes = compressionStream.toByteArray();
+    // Create output stream for encrypted data
+    var encOut = new Packages.java.io.ByteArrayOutputStream();
+    var out = encOut;
+
+    // Use armored output if specified
+    if (settings.armor) {
+        out = new Packages.org.bouncycastle.bcpg.ArmoredOutputStream(encOut);
     }
 
-    // Prepare output stream
-    var byteArrayOutputStream = new java.io.ByteArrayOutputStream();
-    var out = settings.armor
-        ? new org.bouncycastle.bcpg.ArmoredOutputStream(byteArrayOutputStream)
-        : byteArrayOutputStream;
+    // Compress data if enabled
+    var bOut = new ByteArrayOutputStream();
+    var comData = new org.bouncycastle.openpgp.PGPCompressedDataGenerator(settings.compressionAlgorithm);
+    var cos = comData.open(bOut);
+    var lData = new org.bouncycastle.openpgp.PGPLiteralDataGenerator();
+    var pOut = lData.open(cos, 'b', "_CONSOLE", clearData.length, new Date());
+    pOut.write(clearData);
+    lData.close();
+    comData.close();
 
-    // Log encryption step
-    if (settings.log) logger.info("Encrypting data...");
-
-    // Encrypt the data
-    var cOut = PGPEncryptedDataGenerator.open(out, byteArrayOutputStream.size());
-    cOut.write(inputBytes);
+    // Encrypt compressed or uncompressed data
+    var bytes = bOut.toByteArray();
+    var cOut = cPk.open(out, bytes.length);
+    cOut.write(bytes);
     cOut.close();
-    if (settings.armor) out.close();
+    out.close();
 
-    var encryptedBytes = byteArrayOutputStream.toByteArray();
-
-    // Return the encrypted data based on outputDestination
+    // Handle output based on destination setting
     if (settings.outputDestination === "byteArray") {
-        return encryptedBytes;
+        return encOut;
     } else if (settings.outputDestination === "string") {
-        return new java.lang.String(encryptedBytes, "UTF-8");
-    } else {
+        return encOut.toString();
+    } else if (settings.outputDestination) {
         var outputFile = new java.io.File(settings.outputDestination);
         var fileOutputStream = new java.io.FileOutputStream(outputFile);
-        fileOutputStream.write(encryptedBytes);
+        fileOutputStream.write(encOut.toByteArray()); // Ensure correct data written
         fileOutputStream.close();
         return outputFile.getAbsolutePath();
+    } else {
+        throw new Error("Invalid output destination.");
     }
 }

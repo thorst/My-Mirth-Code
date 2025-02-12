@@ -60,26 +60,55 @@ watcher.on("add", (filePath) => {
                     ];
                 });
 
-                // Insert file data into DB
-                let inserted_id = await insertMessage([
-                    json.channelId,
-                    json.channelName,
-                    conn.connectorId,
-                    conn.connectorName,
-                    conn.transmitDate ? conn.transmitDate / 1000 : null,
-                    conn.estimatedDate ? conn.estimatedDate / 1000 : 0
-                ]).then(() => {
-                    // Build map data for connector
-                    let mapData = [];
+                // Insert the message data
+                json.connectors.forEach(conn => {
 
-                    // Loop over the connector.mapConnector object
-                    mapData.concat(buildMapData(inserted_id, conn.mapConnector, "connector"));
-                    mapData.concat(buildMapData(inserted_id, conn.mapSource, "source"));
-                    mapData.concat(buildMapData(inserted_id, json.mapChannel, "channel"));
-                    mapData.concat(buildMapData(inserted_id, json.mapResponse, "response"));
+                    if (conn.message == null) {
+                        return;
+                    }
 
+                    // Build map data 
+                    const mapLoop = {
+                        channel: json.mapChannel,
+                        response: json.mapResponse,
+                        source: conn.mapSource,
+                        connector: conn.mapConnector
+                    };
 
-                    insertMetaData(mapData);
+                    const maps = [];
+                    for (const [mapName, mapV] of Object.entries(mapLoop)) {
+                        if (mapV === null || mapV === undefined) {
+                            continue;
+                        }
+                        for (const [key, v] of Object.entries(mapV)) {
+                            maps.push({
+                                k: key,
+                                v: String(v),
+                                map: mapName
+                            });
+                        }
+                    }
+
+                    // Insert file data into DB
+                    //message_id, channel_id, channel_name, connector_id,
+                    //connector_name, send_state, transmit_time, maps, message, response
+                    let inserted_id = await insertMessage([
+                        json.messageId,
+                        json.channelId,
+                        json.channelName,
+                        conn.connectorId,
+                        conn.connectorName,
+                        conn.processingState,
+                        conn.transmitDate / 1000,
+                        conn.estimatedDate ? conn.estimatedDate / 1000 : 0
+                    ]).then(() => {
+                        // Build map data for connector
+                        let indexableMapData = buildMapData(inserted_id, maps);
+
+                        if (indexableMapData.length > 0) {
+                            await insertMetaData(indexableMapData);
+                        }
+                    });
                 });
 
                 // Delete processed file
@@ -95,29 +124,31 @@ watcher.on("add", (filePath) => {
     }
 })();
 
-function buildMapData(inserted_id, data, map) {
+
+/*
+    Filter to only include keys with search in the name
+*/
+function buildMapData(inserted_id, data) {
     let mapData = [];
-    for (let key in data) {
-        if (key.startsWith("search") || key.endsWith("search")) {
+    data.forEach((map) => {
+        if (map.k.startsWith("search") || map.k.endsWith("search")) {
             mapData.push([
                 inserted_id,
-                key,
-                data[key],
-                map
+                map.k,
+                map.v,
+                map.map
             ]);
         }
-    }
+    });
     return mapData;
 }
 
 // Retry-based DB insert function
 async function insertMessage(data) {
-    const sql = `INSERT INTO last_activity (channel_id, channel_name, connector_id, connector_name, actual_transmit, estimated_transmit, updated)
-            VALUES (?, ?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE 
-                actual_transmit = VALUES(actual_transmit), 
-                estimated_transmit = VALUES(estimated_transmit), 
-                updated = NOW();`;
+    const sql = ` INSERT INTO fridge_message_history (
+                message_id, channel_id, channel_name, connector_id,
+                connector_name, send_state, transmit_time, maps, message, response
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
 
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {

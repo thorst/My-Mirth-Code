@@ -41,7 +41,7 @@ const workerPool = new Map(); // Store worker per subdirectory
 console.log(`Watching parent directory: ${WATCH_DIR}...`);
 
 const watcher = chokidar.watch(WATCH_DIR, {
-    ignored: WATCH_DIR,
+    //    ignored: WATCH_DIR,
     persistent: true,
     ignoreInitial: false, // Process existing directories
     depth: 1, // Only watch direct subdirectories

@@ -49,28 +49,7 @@ acks, which probably is whats behind the scenes for that auto-generate feature.
    1. Retreive Map Keys - This grabs the most recent message for a channel/connector, and returns all the map keys, which we can use for filtering
 
 
-## Datebase:
-```sql
-CREATE TABLE `fridge_message_history` (
-	`fridge_message_history_id` BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-	`message_id` BIGINT(20) UNSIGNED NOT NULL DEFAULT '0',
-	`channel_id` UUID NOT NULL,
-	`channel_name` VARCHAR(100) NOT NULL DEFAULT '' COLLATE 'latin1_swedish_ci',
-	`connector_id` TINYINT(3) UNSIGNED NOT NULL DEFAULT '0',
-	`connector_name` VARCHAR(100) NOT NULL DEFAULT '' COLLATE 'latin1_swedish_ci',
-	`send_state` VARCHAR(15) NOT NULL DEFAULT '' COLLATE 'latin1_swedish_ci',
-	`transmit_time` BIGINT(20) NOT NULL DEFAULT '0',
-	`maps` LONGTEXT NULL DEFAULT NULL COLLATE 'utf8mb4_bin',
-	`message` TEXT NOT NULL COLLATE 'latin1_swedish_ci',
-	`response` TEXT NULL DEFAULT NULL COLLATE 'latin1_swedish_ci',
-	`inserted` TIMESTAMP NOT NULL DEFAULT current_timestamp(),
-	PRIMARY KEY (`fridge_message_history_id`) USING BTREE
-)
-COLLATE='latin1_swedish_ci'
-ENGINE=InnoDB
-AUTO_INCREMENT=855
-;
-```
+
 
 ## Example Json From global post processor
 ```json
@@ -175,21 +154,20 @@ we can use this integation to track that.
 3. We need an Api to return the activity read from the database
 4. We need the purge channel to remove items in the activity table that havent been updated. This would mean the channel/connector was renamed, or deleted
 
-```sql
-CREATE TABLE `last_activity` (
-	`last_activity_id` BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-	`channel_id` UUID NOT NULL,
-	`channel_name` VARCHAR(100) NOT NULL DEFAULT '0' COLLATE 'utf8mb4_unicode_ci',
-	`connector_id` TINYINT(3) UNSIGNED NOT NULL DEFAULT '0',
-	`connector_name` VARCHAR(100) NOT NULL DEFAULT '0' COLLATE 'utf8mb4_unicode_ci',
-	`estimated_transmit` BIGINT(20) UNSIGNED NOT NULL DEFAULT '0',
-	`actual_transmit` BIGINT(20) UNSIGNED NOT NULL DEFAULT '0',
-	`updated` DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-	PRIMARY KEY (`last_activity_id`) USING BTREE,
-	UNIQUE INDEX `unique_channel_connector` (`channel_id`, `connector_id`) USING BTREE
-)
-COMMENT='Holds the last activity datetime for each connector.'
-COLLATE='utf8mb4_unicode_ci'
-ENGINE=InnoDB
-;
-```
+
+
+
+v1 was a proof of concept
+
+v2 was pretty usable, but storing the maps in a json object in the table could not be indexed and therefor was slow. also its bulk loading was fast, but theres not resiliency. it deletes the file before inserting it, so its possible it was never inserted correctly, not that that couldnt be rectified. All of the out of engine scripts were in python, and I didnt love this because everything in mirth is js. This version had a major ui overhaul on the website, and started playing with indexes.
+
+v3:
+  -Switch to use node v20. This uses PM2 to restart the script on server reboot. This is because our team can control its settings, compared to systemd which our server team controls.
+    Also, its nice to be in all js instead of switching between python and js.
+  -We are using mariadb 10.11 on the same server as the mirth instance. Our main db is postgres.
+  -All the transactions are stored in the same table, but we use partitions to limit the scope of the queries.
+  -Loader is more robust now with inserting 1 record at a time. This is slower then the bulk inserts, but ensures acdcuracy, as files arent deleted until they are succesfully loaded into
+    the database.
+  -In order for map data to be indexed, it needs to be prefixed with "search" or suffixed with "Search" (case sensitive). It does NOT need to be in a channels `Custom Metadata` to be
+    searchable
+  -In order to display the map data on the Fridge gui (website), it DOES need to be in the `Custom Metadata`

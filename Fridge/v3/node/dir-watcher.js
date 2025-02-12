@@ -29,68 +29,39 @@
         - systemd
 
 */
-
 require("dotenv").config();
 const chokidar = require("chokidar");
 const { Worker } = require("worker_threads");
-const fs = require("fs");
 const path = require("path");
-const os = require("os");
+const fs = require("fs");
 
-const WATCH_DIR = process.env.WATCH_DIR || "/default/path"; // Load from .env
-const MAX_WORKERS = parseInt(process.env.MAX_WORKERS) || os.cpus().length; // Limit workers
-const workerPool = new Set();
-const fileQueue = []; // Queue for pending files
+const WATCH_DIR = process.env.WATCH_DIR || "/default/path";
+const workerPool = new Map(); // Store worker per subdirectory
 
-console.log(`Watching for file changes in ${WATCH_DIR}...`);
+console.log(`Watching parent directory: ${WATCH_DIR}...`);
 
-// Initialize Chokidar watcher
 const watcher = chokidar.watch(WATCH_DIR, {
     persistent: true,
-    ignoreInitial: false,
-    depth: 2, // Watch parent + child directories
+    ignoreInitial: true, // Process existing directories
+    depth: 1, // Only watch direct subdirectories
     awaitWriteFinish: {
         stabilityThreshold: 1000,
         pollInterval: 100,
     },
 });
 
-// Detect new files and queue them
-watcher.on("add", (filePath) => {
-    console.log(`New file detected: ${path.basename(filePath)}`);
-    fileQueue.push(filePath);
+watcher.on("addDir", (dirPath) => {
+    if (workerPool.has(dirPath)) return; // Worker already exists
+
+    console.log(`Starting worker for: ${dirPath}`);
+    const worker = new Worker("./dir-worker.js", { workerData: { dirPath } });
+
+    workerPool.set(dirPath, worker);
+
+    worker.on("exit", () => {
+        console.log(`Worker for ${dirPath} exited`);
+        workerPool.delete(dirPath);
+    });
+
+    worker.on("error", (err) => console.error(`Worker error: ${err}`));
 });
-
-// Function to process files using a worker thread
-(async function processNextFile() {
-    while (true) {
-        if (fileQueue.length > 0 && workerPool.size < MAX_WORKERS) {
-
-            const filePath = fileQueue.shift(); // Get the next file
-            console.log(`Processing: ${filePath}`);
-
-            const worker = new Worker("./file-worker.js", { workerData: filePath });
-            workerPool.add(worker);
-
-            worker.on("message", (msg) => {
-                if (msg === "done") {
-                    console.log(`Processed: ${filePath}, deleting...`);
-                    fs.unlink(filePath, (err) => {
-                        if (err) console.error(`Error deleting ${filePath}: ${err}`);
-                    });
-                }
-            });
-
-            worker.on("exit", () => {
-                workerPool.delete(worker);
-                processNextFile(); // Start processing next file in queue
-            });
-
-            worker.on("error", (err) => console.error(`Worker error: ${err}`));
-        } else {
-            await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay to avoid high CPU usage
-        }
-    }
-})();
-
-

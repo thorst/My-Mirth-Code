@@ -62,12 +62,11 @@ watcher.on("add", (filePath) => {
 
                 // Insert the message data
                 json.connectors.forEach(conn => {
-
                     if (conn.message == null) {
                         return;
                     }
 
-                    // Build map data 
+                    // Build map data
                     const mapLoop = {
                         channel: json.mapChannel,
                         response: json.mapResponse,
@@ -89,33 +88,35 @@ watcher.on("add", (filePath) => {
                         }
                     }
 
-                    // Insert file data into DB
-                    //message_id, channel_id, channel_name, connector_id,
-                    //connector_name, send_state, transmit_time, maps, message, response
-                    let inserted_id = await insertMessage([
-                        json.messageId,
-                        json.channelId,
-                        json.channelName,
-                        conn.connectorId,
-                        conn.connectorName,
-                        conn.processingState,
-                        conn.transmitDate / 1000,
-                        conn.estimatedDate ? conn.estimatedDate / 1000 : 0
-                    ]).then(() => {
-                        // Build map data for connector
-                        let indexableMapData = buildMapData(inserted_id, maps);
+                    (async () => {
+                        try {
+                            let inserted_id = await insertMessage([
+                                json.messageId,
+                                json.channelId,
+                                json.channelName,
+                                conn.connectorId,
+                                conn.connectorName,
+                                conn.processingState,
+                                conn.transmitDate / 1000,
+                                conn.estimatedDate ? conn.estimatedDate / 1000 : 0
+                            ]);
 
-                        if (indexableMapData.length > 0) {
-                            await insertMetaData(indexableMapData);
+                            let indexableMapData = buildMapData(inserted_id, maps);
+
+                            if (indexableMapData.length > 0) {
+                                await insertMetaData(indexableMapData);
+                            }
+                        } catch (err) {
+                            console.error(`Error inserting message: ${err}`);
                         }
-                    });
+                    })();
                 });
 
                 // Delete processed file
                 fs.unlinkSync(filePath);
                 console.log(`Deleted: ${filePath}`);
             } catch (err) {
-                console.error(`Error processing ${filePath}: ${err}`);
+                console.log(`Error processing ${filePath}: ${err}`);
                 fileQueue.push(filePath); // Re-queue failed file
             }
         } else {

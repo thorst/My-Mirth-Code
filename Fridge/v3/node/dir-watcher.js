@@ -9,8 +9,8 @@
 
     How to run:
         For testing WITHOUT ability to close the terminal:
-            node watch_files.js                                     ;To start the script
-            CTRL+C                                                  ;To stop the script
+            node dir-watcher.js > watch_output.log 2> watch_error.log       ;To start the script
+            CTRL+C                                                          ;To stop the script
         For testing WITH ability to close the terminal:
             nohup node file-watcher.js > /var/log/file_watcher.log 2>&1 &   ;Allows you to close the terminal and keep the script running, it should output the pid, take note
             ps aux | grep watch_files.js                                    ;Check if the script is running
@@ -41,8 +41,9 @@ const workerPool = new Map(); // Store worker per subdirectory
 console.log(`Watching parent directory: ${WATCH_DIR}...`);
 
 const watcher = chokidar.watch(WATCH_DIR, {
+    ignored: WATCH_DIR,
     persistent: true,
-    ignoreInitial: true, // Process existing directories
+    ignoreInitial: false, // Process existing directories
     depth: 1, // Only watch direct subdirectories
     awaitWriteFinish: {
         stabilityThreshold: 1000,

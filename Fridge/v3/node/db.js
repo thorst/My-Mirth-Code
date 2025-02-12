@@ -1,6 +1,5 @@
-// db.js - Shared MySQL connection pool
+const mysql = require("mysql2/promise");
 require("dotenv").config();
-const mysql = require("mysql2");
 
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
@@ -8,11 +7,18 @@ const pool = mysql.createPool({
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
     waitForConnections: true,
-    connectionLimit: process.env.DB_POOL_LIMIT || 10,
-    queueLimit: 0
+    connectionLimit: process.env.DB_POOL_SIZE || 10,
+    queueLimit: 0,
 });
 
-// Promisify for async/await support
-const promisePool = pool.promise();
-
-module.exports = promisePool;
+module.exports = {
+    query: async (sql, params) => {
+        const connection = await pool.getConnection();
+        try {
+            const [results] = await connection.execute(sql, params);
+            return results;
+        } finally {
+            connection.release();
+        }
+    }
+};

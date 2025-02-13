@@ -15,10 +15,7 @@
  * @throws {Error} If required parameters are missing or encryption fails.
  */
 
-/*
-    Read more about what to choose:
-    https://wellspan.sharepoint.com/sites/EnterpriseIntegration/_layouts/15/Doc.aspx?sourcedoc={f416ae9f-eda5-4642-a390-f7f591c5dbbf}&action=edit&wd=target%28DOCUMENTATION%2FMirth%2FDevelop.one%7Ce49fe617-f198-4220-8215-726c21d5f76a%2FDetermine%20Compression%20and%20Algorithm%7Cefa9defd-0cb2-4d9c-93cb-f6e7bb07d9ef%2F%29&wdorigin=NavigationUrl
- */
+
 /*
 In Bouncy Castle's org.bouncycastle.openpgp.PGPCompressedData, the compression methods are defined by the OpenPGP standard. Here are the available compression algorithms:
 
@@ -54,8 +51,8 @@ function pgpEncrypt(settings) {
         armor: true, // Whether to use ASCII-armored output
         withIntegrityCheck: true, // Add an integrity check
         compress: true, // Enable compression
-        compressionAlgorithm: org.bouncycastle.openpgp.PGPCompressedData.ZIP, // Compression algorithm https://downloads.bouncycastle.org/java/docs/bcpg-jdk14-javadoc/org/bouncycastle/openpgp/PGPCompressedData.html
-        encryptionAlgorithm: org.bouncycastle.openpgp.PGPEncryptedData.CAST5, // Encryption algorithm https://downloads.bouncycastle.org/java/docs/bcpg-jdk15to18-javadoc/org/bouncycastle/openpgp/PGPEncryptedData.html
+        compressionAlgorithm: PGPCompressedData.ZIP, // Compression algorithm https://downloads.bouncycastle.org/java/docs/bcpg-jdk14-javadoc/org/bouncycastle/openpgp/PGPCompressedData.html
+        encryptionAlgorithm: PGPEncryptedData.CAST5, // Encryption algorithm https://downloads.bouncycastle.org/java/docs/bcpg-jdk15to18-javadoc/org/bouncycastle/openpgp/PGPEncryptedData.html
         outputDestination: "string", // Output format: string, byteArray, or file path
     };
 
@@ -69,11 +66,11 @@ function pgpEncrypt(settings) {
 
     // Adjust compression settings if disabled
     if (!settings.compress) {
-        settings.compressionAlgorithm = org.bouncycastle.openpgp.PGPCompressedData.UNCOMPRESSED;
+        settings.compressionAlgorithm = PGPCompressedData.UNCOMPRESSED;
     }
 
     // Add BouncyCastle security provider
-    java.security.Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+    Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
 
     // Ensure publicKeyPaths is an array
     var publicKeys = Array.isArray(settings.publicKeyPaths) ?
@@ -88,8 +85,8 @@ function pgpEncrypt(settings) {
     });
 
     // Initialize encryption generator with integrity check and algorithm
-    var cPk = new org.bouncycastle.openpgp.PGPEncryptedDataGenerator(
-        new org.bouncycastle.openpgp.operator.jcajce.JcePGPDataEncryptorBuilder(3) // Use appropriate encryption algorithm constant
+    var cPk = new PGPEncryptedDataGenerator(
+        new JcePGPDataEncryptorBuilder(3) // Use appropriate encryption algorithm constant
             .setProvider("BC") // Set provider
             .setWithIntegrityPacket(settings.withIntegrityCheck)
     );
@@ -132,9 +129,9 @@ function pgpEncrypt(settings) {
 
     // Compress data if enabled
     var bOut = new ByteArrayOutputStream();
-    var comData = new org.bouncycastle.openpgp.PGPCompressedDataGenerator(settings.compressionAlgorithm);
+    var comData = new PGPCompressedDataGenerator(settings.compressionAlgorithm);
     var cos = comData.open(bOut);
-    var lData = new org.bouncycastle.openpgp.PGPLiteralDataGenerator();
+    var lData = new PGPLiteralDataGenerator();
     var pOut = lData.open(cos, 'b', "_CONSOLE", clearData.length, new Date());
     pOut.write(clearData);
     lData.close();

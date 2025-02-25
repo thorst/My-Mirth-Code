@@ -12,17 +12,18 @@ const pool = mysql.createPool({
 });
 
 module.exports = {
+    // params should be an array of arrays, even if you are only inserting one record
     query: async (sql, params) => {
         const connection = await pool.getConnection();
         try {
             // Tempary log the query
             // Log query 
-            const formattedSql = mysql.format(sql, params);
-            console.log("Inserting message: ");
-            console.log(formattedSql);
+            // const formattedSql = mysql.format(sql, params);
+            // console.log("Inserting message: ");
+            // console.log(formattedSql);
             // -------------------
 
-            const [results] = await connection.execute(sql, params);
+            const [results] = await connection.query(sql, params);
             return results;
         } finally {
             connection.release();

@@ -36,8 +36,8 @@ const watcher = chokidar.watch(dirPath, {
 //     fileQueue.push(filePath);
 // });
 watcher.on("add", async (filePath) => {
-    console.log("File Added: ", filePath, " on thread ", threadId);
-    //fileQueue.push(filePath);
+    //console.log("File Added: ", filePath, " on thread ", threadId);
+    fileQueue.push(filePath);
 });
 
 (async function processQueue() {
@@ -52,8 +52,7 @@ watcher.on("add", async (filePath) => {
 
                 // Process lastActivity
                 json.connectors.forEach(conn => {
-                    // I dont think we can have this condition,
-                    // if the destination was not set to queue?
+                    // Ignore the raw source connector, thats made up
                     if (conn.connectorId < 0) return;
 
                     let key = json.channelName + "|" + conn.connectorName;
@@ -69,10 +68,14 @@ watcher.on("add", async (filePath) => {
 
                 // Collect async DB insert promises
                 const dbPromises = json.connectors.map(async (conn) => {
+                    console.log(`working on conn: ${conn.connectorId}`);
+
                     if (!conn.message) {
-                        console.log(`Message empty: ${filePath}`);
+                        console.log(`Message empty, skipping.`);
                         return;
                     }
+
+
 
                     // Make one dictionary with all map data
                     let mapData = Object.entries({
@@ -206,6 +209,8 @@ setInterval(async () => {
         } catch (err) {
             console.error(`Error writing batch to database: ${err}`);
         }
+    } else {
+        console.log(`No records to write...`);
     }
 }, 60000); // 1 min
 
@@ -213,7 +218,7 @@ setInterval(async () => {
 async function insertLastActivity(data) {
     const sql = `
         INSERT INTO last_activity (channel_id, channel_name, connector_id, connector_name, actual_transmit, estimated_transmit, updated)
-        VALUES ? 
+        VALUES (?, ?, ?, ?, ?, ?, NOW())
         ON DUPLICATE KEY UPDATE 
             actual_transmit = VALUES(actual_transmit), 
             estimated_transmit = VALUES(estimated_transmit), 
@@ -221,10 +226,13 @@ async function insertLastActivity(data) {
     `;
 
     const values = Object.values(data);
+    // console.log(values);
+    // const flattenedValues = values.flat(); // Flatten nested arrays into a single array, the mysql2 library doesn't support nested arrays
+    // console.log(flattenedValues);
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-            await db.query(sql, [values]);
+            await db.query(sql, values);
             return;
         } catch (e) {
             if (e.code === "ER_LOCK_DEADLOCK" || e.code === "ER_LOCK_WAIT_TIMEOUT") {

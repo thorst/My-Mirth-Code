@@ -6,7 +6,7 @@
     Worker thread for watching a subdirectory and processing JSON files.
 */
 
-const { parentPort, workerData } = require("worker_threads");
+const { parentPort, workerData, threadId } = require("worker_threads");
 const chokidar = require("chokidar");
 const fs = require("fs");
 const path = require("path");
@@ -18,13 +18,13 @@ let lastActivity = {}; // Stores data for batch DB insert
 
 const SQL_MAX_RETRIES = process.env.SQL_MAX_RETRIES || 5; // Pull from .env
 
-console.log(`Worker watching: ${dirPath}`);
+console.log(`Worker watching: ${dirPath} with threadId: ${threadId}`);
 
 // Initialize watcher
 const watcher = chokidar.watch(dirPath, {
     persistent: true,
     ignoreInitial: false, // Process existing files on startup
-    depth: 1,
+    depth: 0,
     awaitWriteFinish: {
         stabilityThreshold: 1000, // Wait 1s after last change
         pollInterval: 100,
@@ -32,8 +32,12 @@ const watcher = chokidar.watch(dirPath, {
 });
 
 // Queue files for processing
-watcher.on("add", (filePath) => {
-    fileQueue.push(filePath);
+// watcher.on("add", (filePath) => {
+//     fileQueue.push(filePath);
+// });
+watcher.on("add", async (filePath) => {
+    console.log("File Added: ", filePath, " on thread ", threadId);
+    //fileQueue.push(filePath);
 });
 
 (async function processQueue() {
@@ -46,9 +50,12 @@ watcher.on("add", (filePath) => {
 
                 console.log(`Processing ${filePath}:`);
 
-                // Populate `lastActivity` batch
+                // Process lastActivity
                 json.connectors.forEach(conn => {
-                    if (conn.connectorId < 0) return; // Ignore raw source data
+                    // I dont think we can have this condition,
+                    // if the destination was not set to queue?
+                    if (conn.connectorId < 0) return;
+
                     let key = json.channelName + "|" + conn.connectorName;
                     lastActivity[key] = [
                         json.channelId,
@@ -60,61 +67,55 @@ watcher.on("add", (filePath) => {
                     ];
                 });
 
-                // Insert the message data
-                json.connectors.forEach(conn => {
-                    if (conn.message == null) {
+                // Collect async DB insert promises
+                const dbPromises = json.connectors.map(async (conn) => {
+                    if (!conn.message) {
+                        console.log(`Message empty: ${filePath}`);
                         return;
                     }
 
-                    // Build map data
-                    const mapLoop = {
+                    // Make one dictionary with all map data
+                    let mapData = Object.entries({
                         channel: json.mapChannel,
                         response: json.mapResponse,
                         source: conn.mapSource,
                         connector: conn.mapConnector
-                    };
+                    }).flatMap(([mapName, mapV]) =>
+                        mapV ? Object.entries(mapV).map(([key, v]) => ({ k: key, v: String(v), map: mapName })) : []
+                    );
 
-                    const maps = [];
-                    for (const [mapName, mapV] of Object.entries(mapLoop)) {
-                        if (mapV === null || mapV === undefined) {
-                            continue;
-                        }
-                        for (const [key, v] of Object.entries(mapV)) {
-                            maps.push({
-                                k: key,
-                                v: String(v),
-                                map: mapName
-                            });
-                        }
+                    // Insert message
+                    let inserted_id = await insertMessage([
+                        json.messageId,
+                        json.channelId,
+                        json.channelName,
+                        conn.connectorId,
+                        conn.connectorName,
+                        conn.processingState,
+                        conn.transmitDate / 1000,
+                        JSON.stringify(mapData),
+                        conn.message,
+                        conn.response
+                    ]);
+
+                    //  conn.estimatedDate ? conn.estimatedDate / 1000 : 0
+
+                    // Insert indexable map data
+                    let indexableMapData = buildMapData(inserted_id, mapData);
+                    if (indexableMapData.length > 0) {
+                        console.log(`Inserting indexable map data: ${filePath}`);
+                        await insertMetaData(indexableMapData);
                     }
-
-                    (async () => {
-                        try {
-                            let inserted_id = await insertMessage([
-                                json.messageId,
-                                json.channelId,
-                                json.channelName,
-                                conn.connectorId,
-                                conn.connectorName,
-                                conn.processingState,
-                                conn.transmitDate / 1000,
-                                conn.estimatedDate ? conn.estimatedDate / 1000 : 0
-                            ]);
-
-                            let indexableMapData = buildMapData(inserted_id, maps);
-
-                            if (indexableMapData.length > 0) {
-                                await insertMetaData(indexableMapData);
-                            }
-                        } catch (err) {
-                            console.error(`Error inserting message: ${err}`);
-                        }
-                    })();
                 });
 
-                // Delete processed file
+                // Wait for all database operations to finish
+                await Promise.all(dbPromises);
+
+                // Delete processed file only after all DB operations are done
+                console.log(`Deleting: ${filePath}`);
                 fs.unlinkSync(filePath);
                 console.log(`Deleted: ${filePath}`);
+
             } catch (err) {
                 console.log(`Error processing ${filePath}: ${err}`);
                 fileQueue.push(filePath); // Re-queue failed file
@@ -124,6 +125,7 @@ watcher.on("add", (filePath) => {
         }
     }
 })();
+
 
 
 /*
@@ -154,6 +156,8 @@ async function insertMessage(data) {
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
+
+
             const result = await db.query(sql, data);
             return result.insertId; // <-- Fix here
         } catch (e) {

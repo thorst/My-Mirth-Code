@@ -15,6 +15,13 @@ module.exports = {
     query: async (sql, params) => {
         const connection = await pool.getConnection();
         try {
+            // Tempary log the query
+            // Log query 
+            const formattedSql = mysql.format(sql, params);
+            console.log("Inserting message: ");
+            console.log(formattedSql);
+            // -------------------
+
             const [results] = await connection.execute(sql, params);
             return results;
         } finally {

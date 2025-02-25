@@ -9,7 +9,7 @@
 
     How to run:
         For testing WITHOUT ability to close the terminal:
-            node dir-watcher.js > watch_output.log 2> watch_error.log       ;To start the script
+            node dir-watcher.js > watch_output.log 2>&1                     ;To start the script
             CTRL+C                                                          ;To stop the script
         For testing WITH ability to close the terminal:
             nohup node file-watcher.js > /var/log/file_watcher.log 2>&1 &   ;Allows you to close the terminal and keep the script running, it should output the pid, take note
@@ -40,18 +40,18 @@ const workerPool = new Map(); // Store worker per subdirectory
 
 console.log(`Watching parent directory: ${WATCH_DIR}...`);
 
+
 const watcher = chokidar.watch(WATCH_DIR, {
-    //    ignored: WATCH_DIR,
     persistent: true,
     ignoreInitial: false, // Process existing directories
-    depth: 1, // Only watch direct subdirectories
+    depth: 0, // Only watch direct subdirectories
     awaitWriteFinish: {
         stabilityThreshold: 1000,
         pollInterval: 100,
     },
 });
 
-watcher.on("addDir", (dirPath) => {
+function startWorker(dirPath) {
     if (workerPool.has(dirPath)) return; // Worker already exists
 
     console.log(`Starting worker for: ${dirPath}`);
@@ -59,10 +59,31 @@ watcher.on("addDir", (dirPath) => {
 
     workerPool.set(dirPath, worker);
 
-    worker.on("exit", () => {
-        console.log(`Worker for ${dirPath} exited`);
+    worker.on("exit", (code) => {
+        console.log(`Worker for ${dirPath} exited with code ${code}`);
         workerPool.delete(dirPath);
     });
 
-    worker.on("error", (err) => console.error(`Worker error: ${err}`));
+    worker.on("error", (err) => {
+        console.error(`Worker error: ${err}`);
+        console.log(`Restarting worker for: ${dirPath}`);
+        startWorker(dirPath); // Restart the worker if it exited with an error
+    });
+}
+
+watcher.on("addDir", (dirPath) => {
+    // Ignore the root directory as far as monitoring for files are concerned
+    if (dirPath === WATCH_DIR) { return; }
+
+    // This is a sub directory, so start a file watcher up
+    startWorker(dirPath);
+});
+
+watcher.on("unlinkDir", (dirPath) => {
+    if (!workerPool.has(dirPath)) return; // No worker for this directory
+
+    console.log(`Directory deleted: ${dirPath}`);
+    const worker = workerPool.get(dirPath);
+    worker.terminate(); // Terminate the worker thread
+    workerPool.delete(dirPath);
 });

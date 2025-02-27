@@ -8,21 +8,37 @@
         This is all done outside of the mirth engine, so it wont increase its performance.
 
     How to run:
+        Initialize:
+            copy code to server
+
         For testing WITHOUT ability to close the terminal:
-            node dir-watcher.js > watch_output.log 2>&1                     ;To start the script
-            CTRL+C                                                          ;To stop the script
+            node dir-watcher.js > watch_output.log 2>&1                             ;To start the script
+            CTRL+C                                                                  ;To stop the script
         For testing WITH ability to close the terminal:
-            nohup node file-watcher.js > /var/log/file_watcher.log 2>&1 &   ;Allows you to close the terminal and keep the script running, it should output the pid, take note
-            ps aux | grep watch_files.js                                    ;Check if the script is running
-            kill -9 12345                                                   ;Kill the script by PID
+            nohup node file-watcher.js > /var/log/file_watcher.log 2>&1 &           ;Allows you to close the terminal and keep the script running, it should output the pid, take note
+            ps aux | grep watch_files.js                                            ;Check if the script is running
+            kill -9 12345                                                           ;Kill the script by PID
         In prod wiht PM2:
-            pm2 start watch_files.js --name "file-watcher"          ;Start the script:
-            pm2 save && pm2 startup                                 ;Make it auto-start on reboot:
-            pm2 list                                                ;Check if the script is running
-            pm2 stop file-watcher                                   ;Stop the script
-            pm2 restart file-watcher                                ;Restart the script (say after you update)
-            pm2 delete file-watcher                                 ;Delete the script
-            pm2 monit                                               ;Monitor the scripts rerouces
+          
+            // Im trying to hardcode heap space but this may not be needed
+            pm2 start "node --max-old-space-size=4096 dir-watcher.js" --name "fridge-dir-watcher" --max-memory-restart 4096M --time
+
+            // This is a more traditional command to start up
+            pm2 start dir-watcher.js --name "fridge-dir-watcher" --time
+
+           
+            pm2 save && pm2 startup                                                 ;Make it auto-start on reboot:
+            pm2 list                                                                ;Check if the script is running
+            pm2 stop fridge-dir-watcher                                             ;Stop the script
+            pm2 restart fridge-dir-watcher                                          ;Restart the script (say after you update)
+            pm2 reload fridge-dir-watcher                                           ;Reload the script, no downtime
+            pm2 restart fridge-dir-watcher --update-env                             ;Restart the script with updated env variables, if you change the package.json
+            pm2 delete fridge-dir-watcher                                           ;Delete the script
+            pm2 monit                                                               ;Monitor the scripts rerouces
+            pm2 logs fridge-dir-watcher                                             ;watch the logs for this script
+            pm2 show fridge-dir-watcher                                             ;View the details of the script
+            pm2 info fridge-dir-watcher                                             ;View the details of the script
+            /home/<user>/.pm2/logs                                                  ;Location of the logs
 
     Alternatives:
         - supervisorctl

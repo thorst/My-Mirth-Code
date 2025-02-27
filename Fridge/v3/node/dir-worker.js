@@ -56,22 +56,24 @@ watcher.on("add", async (filePath) => {
                     if (conn.connectorId < 0) return;
 
                     let key = json.channelName + "|" + conn.connectorName;
+                    const now = new Date();
                     lastActivity[key] = [
                         json.channelId,
                         json.channelName,
                         conn.connectorId,
                         conn.connectorName,
                         conn.transmitDate ? conn.transmitDate / 1000 : null,
-                        conn.estimatedDate ? conn.estimatedDate / 1000 : 0
+                        conn.estimatedDate ? conn.estimatedDate / 1000 : 0,
+                        now
                     ];
                 });
 
                 // Collect async DB insert promises
                 const dbPromises = json.connectors.map(async (conn) => {
-                    console.log(`working on conn: ${conn.connectorId}`);
+                    //console.log(`working on conn: ${conn.connectorId}`);
 
                     if (!conn.message) {
-                        console.log(`Message empty, skipping.`);
+                        //console.log(`Message empty, skipping.`);
                         return;
                     }
 
@@ -106,7 +108,7 @@ watcher.on("add", async (filePath) => {
                     // Insert indexable map data
                     let indexableMapData = buildMapData(inserted_id, mapData);
                     if (indexableMapData.length > 0) {
-                        console.log(`Inserting indexable map data: ${filePath}`);
+                        //console.log(`Inserting indexable map data: ${filePath}`);
                         await insertMetaData(indexableMapData);
                     }
                 });
@@ -115,9 +117,9 @@ watcher.on("add", async (filePath) => {
                 await Promise.all(dbPromises);
 
                 // Delete processed file only after all DB operations are done
-                console.log(`Deleting: ${filePath}`);
+                //console.log(`Deleting: ${filePath}`);
                 fs.unlinkSync(filePath);
-                console.log(`Deleted: ${filePath}`);
+                //console.log(`Deleted: ${filePath}`);
 
             } catch (err) {
                 console.log(`Error processing ${filePath}: ${err}`);
@@ -135,9 +137,10 @@ watcher.on("add", async (filePath) => {
     Filter to only include keys with search in the name
 */
 function buildMapData(inserted_id, data) {
+
     let mapData = [];
     data.forEach((map) => {
-        if (map.k.startsWith("search") || map.k.endsWith("search")) {
+        if (map.k.startsWith("search") || map.k.endsWith("Search")) {
             mapData.push([
                 inserted_id,
                 map.k,
@@ -146,22 +149,23 @@ function buildMapData(inserted_id, data) {
             ]);
         }
     });
+
     return mapData;
 }
 
-// Retry-based DB insert function
+// Retry-based DB insert function VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 async function insertMessage(data) {
     const sql = ` INSERT INTO fridge_message_history (
                 message_id, channel_id, channel_name, connector_id,
                 connector_name, send_state, transmit_time, maps, message, response
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
+            )   VALUES ? ;`;
 
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
 
 
-            const result = await db.query(sql, data);
+            const result = await db.query(sql, [data]);
             return result.insertId; // <-- Fix here
         } catch (e) {
             if (e.code === "ER_LOCK_DEADLOCK" || e.code === "ER_LOCK_WAIT_TIMEOUT") {
@@ -174,15 +178,15 @@ async function insertMessage(data) {
     }
 }
 
+//VALUES (  ?,?,?,?  )
 async function insertMetaData(data) {
     if (Object.keys(data).length === 0) return; // Don't execute empty queries
 
     const sql = `INSERT INTO fridge_message_meta_data (
                     fridge_message_history_id, key_string, value_string, map_string
-                ) VALUES (
-                    ?,?,?,?
-                );`;
+                ) VALUES ?;`;
 
+    //console.log(data);
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
@@ -212,13 +216,13 @@ setInterval(async () => {
     } else {
         console.log(`No records to write...`);
     }
-}, 60000); // 1 min
+}, 60000); // 1 min == 60000   15000 == 15 sec
 
-// Batch insert lastActivity function
+// Batch insert lastActivity function VALUES (?, ?, ?, ?, ?, ?, NOW())
 async function insertLastActivity(data) {
     const sql = `
         INSERT INTO last_activity (channel_id, channel_name, connector_id, connector_name, actual_transmit, estimated_transmit, updated)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
+       VALUES ?
         ON DUPLICATE KEY UPDATE 
             actual_transmit = VALUES(actual_transmit), 
             estimated_transmit = VALUES(estimated_transmit), 
@@ -226,9 +230,18 @@ async function insertLastActivity(data) {
     `;
 
     const values = Object.values(data);
-    // console.log(values);
+    //console.log(values);
     // const flattenedValues = values.flat(); // Flatten nested arrays into a single array, the mysql2 library doesn't support nested arrays
     // console.log(flattenedValues);
+    // const values = Object.values(data).map(row => [
+    //     row[0], // channel_id
+    //     row[1], // channel_name
+    //     row[2], // connector_id
+    //     row[3], // connector_name
+    //     row[4] , // actual_transmit
+    //     row[5] , // estimated_transmit
+    //     new Date().toISOString().slice(0, 19).replace("T", " ") // updated
+    // ]);
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {

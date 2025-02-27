@@ -22,8 +22,11 @@ module.exports = {
             // console.log("Inserting message: ");
             // console.log(formattedSql);
             // -------------------
+            // console.log("Values before insert:", JSON.stringify(params, null, 2));
+            // console.log("Is array of arrays?:", Array.isArray(params) && params.every(Array.isArray));
+            // -------------------
 
-            const [results] = await connection.query(sql, params);
+            const [results] = await connection.query(sql, [params]);
             return results;
         } finally {
             connection.release();

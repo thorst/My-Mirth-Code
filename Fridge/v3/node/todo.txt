@@ -1,11 +1,8 @@
 BUGS================================
->Im getting a heap error. It does restart though im not sure if it does so successfully. I got this error by just letting it run, not even feeding it data.
-    Worker error: Error [ERR_WORKER_OUT_OF_MEMORY]: Worker terminated due to reaching memory limit: JS heap out of memory
->Not currently writting multiuple lrecords for last activity
+
+
 
 TASKS+++++++++++++++++++++++++++++++
->test if its inserting message
->test if its inserting meta data
 >partition table script
 >redo gui to handle new meta data searching
 >move db to /ark

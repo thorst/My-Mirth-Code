@@ -25,9 +25,10 @@ const watcher = chokidar.watch(dirPath, {
     persistent: true,
     ignoreInitial: false, // Process existing files on startup
     depth: 0,
+    disableGlobbing: true,
     awaitWriteFinish: {
         stabilityThreshold: 1000, // Wait 1s after last change
-        pollInterval: 3000,// Poll for changes every 100ms, 1 second = 1000ms, 1 minute = 60000ms
+        pollInterval: 100,
     },
 });
 
@@ -37,7 +38,6 @@ const watcher = chokidar.watch(dirPath, {
 // });
 watcher.on("add", async (filePath) => {
     //console.log("File Added: ", filePath, " on thread ", threadId);
-    watcher.unwatch(filePath);
     fileQueue.push(filePath);
 });
 
@@ -49,7 +49,7 @@ watcher.on("add", async (filePath) => {
                 const data = fs.readFileSync(filePath, "utf8");
                 const json = JSON.parse(data);
 
-                //console.log(`Processing ${filePath}:`);
+                console.log(`Processing ${filePath}:`);
 
                 // Process lastActivity
                 json.connectors.forEach(conn => {
@@ -127,7 +127,7 @@ watcher.on("add", async (filePath) => {
                 fileQueue.push(filePath); // Re-queue failed file
             }
         } else {
-            await new Promise((resolve) => setTimeout(resolve, 600)); // Prevent high CPU usage
+            await new Promise((resolve) => setTimeout(resolve, 100)); // Prevent high CPU usage
         }
     }
 })();
@@ -208,7 +208,7 @@ async function insertMetaData(data) {
 setInterval(async () => {
     if (Object.keys(lastActivity).length > 0) {
         try {
-            // console.log(`Writing ${Object.keys(lastActivity).length} records to database...`);
+            console.log(`Writing ${Object.keys(lastActivity).length} records to database...`);
             await insertLastActivity(lastActivity);
             lastActivity = {}; // Clear batch after writing
         } catch (err) {

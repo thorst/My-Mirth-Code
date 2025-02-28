@@ -1,0 +1,9 @@
+BUGS================================
+
+
+
+TASKS+++++++++++++++++++++++++++++++
+>partition table script
+>redo gui to handle new meta data searching
+>move db to /ark
+

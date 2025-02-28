@@ -12,20 +12,19 @@
             copy code to server
 
         For testing WITHOUT ability to close the terminal:
-            node dir-watcher.js                                                     ;To start the script with console log
-            node dir-watcher.js > watch_output.log 2>&1                             ;To start the script, with saved log
+            node dir-watcher.js > watch_output.log 2>&1                             ;To start the script
             CTRL+C                                                                  ;To stop the script
         For testing WITH ability to close the terminal:
             nohup node file-watcher.js > /var/log/file_watcher.log 2>&1 &           ;Allows you to close the terminal and keep the script running, it should output the pid, take note
             ps aux | grep watch_files.js                                            ;Check if the script is running
             kill -9 12345                                                           ;Kill the script by PID
         In prod wiht PM2:
+          
+            // Im trying to hardcode heap space but this may not be needed
+            pm2 start "node --max-old-space-size=4096 dir-watcher.js" --name "fridge-dir-watcher" --max-memory-restart 4096M --time
+
             // This is a more traditional command to start up
             pm2 start dir-watcher.js --name "fridge-dir-watcher" --time
-
-            // Im trying to hardcode heap space but this may not be needed, so for now stick with the above command
-            pm2 start "node --max-old-space-size=4096 dir-watcher.js" --name "fridge-dir-watcher" --max-memory-restart 4096M --time
-       
 
            
             pm2 save && pm2 startup                                                 ;Make it auto-start on reboot:
@@ -40,10 +39,6 @@
             pm2 show fridge-dir-watcher                                             ;View the details of the script
             pm2 info fridge-dir-watcher                                             ;View the details of the script
             /home/<user>/.pm2/logs                                                  ;Location of the logs
-
-        >cat /proc/sys/fs/inotify/max_user_instances                               ;Check the max number of watchers, default is 128 how many separate inotify instances a single user can create
-        >cat /proc/sys/fs/inotify/max_user_watches                                 ;Check the max number of watchers, default is 8192
-
 
     Alternatives:
         - supervisorctl
@@ -67,8 +62,8 @@ const watcher = chokidar.watch(WATCH_DIR, {
     ignoreInitial: false, // Process existing directories
     depth: 0, // Only watch direct subdirectories
     awaitWriteFinish: {
-        stabilityThreshold: 1000, // Wait 1 second for the file size to remain constant
-        pollInterval: 60000, // Poll for changes every 100ms, 1 second = 1000ms, 1 minute = 60000ms
+        stabilityThreshold: 1000,
+        pollInterval: 100,
     },
 });
 

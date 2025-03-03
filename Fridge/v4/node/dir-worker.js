@@ -1,175 +1,125 @@
 /*
-    This script isnt called directly, and instead called from the file-worker.js
-
-*/
-/*
     Worker thread for watching a subdirectory and processing JSON files.
 */
 
 const { parentPort, workerData, threadId } = require("worker_threads");
-const chokidar = require("chokidar");
-const fs = require("fs");
+const fs = require("fs").promises;
 const path = require("path");
 const db = require("./db");
 
 const dirPath = workerData.dirPath;
-const fileQueue = [];
-let lastActivity = {}; // Stores data for batch DB insert
+const SQL_MAX_RETRIES = parseInt(process.env.SQL_MAX_RETRIES) || 5; // Ensure it's an integer
 
-const SQL_MAX_RETRIES = process.env.SQL_MAX_RETRIES || 5; // Pull from .env
+let lastActivity = {}; // Stores data for batch DB insert
 
 console.log(`Worker watching: ${dirPath} with threadId: ${threadId}`);
 
-// Initialize watcher
-const watcher = chokidar.watch(dirPath, {
-    persistent: true,
-    ignoreInitial: false, // Process existing files on startup
-    depth: 0,
-    disableGlobbing: true,
-    awaitWriteFinish: {
-        stabilityThreshold: 1000, // Wait 1s after last change
-        pollInterval: 100,
-    },
-});
-
-// Queue files for processing
-// watcher.on("add", (filePath) => {
-//     fileQueue.push(filePath);
-// });
-watcher.on("add", async (filePath) => {
-    //console.log("File Added: ", filePath, " on thread ", threadId);
-    fileQueue.push(filePath);
-});
-
 (async function processQueue() {
     while (true) {
-        if (fileQueue.length > 0) {
-            const filePath = fileQueue.shift();
-            try {
-                const data = fs.readFileSync(filePath, "utf8");
-                const json = JSON.parse(data);
+        try {
+            const files = await fs.readdir(dirPath);
+            const dbPromises = [];
 
-                console.log(`Processing ${filePath}:`);
+            for (const fileName of files) {
+                const filePath = path.join(dirPath, fileName);
 
-                // Process lastActivity
-                json.connectors.forEach(conn => {
-                    // Ignore the raw source connector, thats made up
-                    if (conn.connectorId < 0) return;
+                try {
+                    // Read and parse JSON
+                    const data = await fs.readFile(filePath, "utf8");
+                    const json = JSON.parse(data);
+                    console.log(`Processing ${filePath}`);
 
-                    let key = json.channelName + "|" + conn.connectorName;
-                    const now = new Date();
-                    lastActivity[key] = [
-                        json.channelId,
-                        json.channelName,
-                        conn.connectorId,
-                        conn.connectorName,
-                        conn.transmitDate ? conn.transmitDate / 1000 : null,
-                        conn.estimatedDate ? conn.estimatedDate / 1000 : 0,
-                        now
-                    ];
-                });
+                    // Process last activity batch data
+                    json.connectors.forEach(conn => {
+                        if (conn.connectorId < 0) return; // Skip invalid connectors
 
-                // Collect async DB insert promises
-                const dbPromises = json.connectors.map(async (conn) => {
-                    //console.log(`working on conn: ${conn.connectorId}`);
+                        let key = `${json.channelName}|${conn.connectorName}`;
+                        lastActivity[key] = [
+                            json.channelId,
+                            json.channelName,
+                            conn.connectorId,
+                            conn.connectorName,
+                            conn.transmitDate ? conn.transmitDate / 1000 : null,
+                            conn.estimatedDate ? conn.estimatedDate / 1000 : 0,
+                            new Date()
+                        ];
+                    });
 
-                    if (!conn.message) {
-                        //console.log(`Message empty, skipping.`);
-                        return;
-                    }
+                    // Collect async DB insert promises
+                    const insertPromises = json.connectors.map(async (conn) => {
+                        if (!conn.message) return; // Skip empty messages
 
+                        let mapData = Object.entries({
+                            channel: json.mapChannel,
+                            response: json.mapResponse,
+                            source: conn.mapSource,
+                            connector: conn.mapConnector
+                        }).flatMap(([mapName, mapV]) =>
+                            mapV ? Object.entries(mapV).map(([key, v]) => ({ k: key, v: String(v), map: mapName })) : []
+                        );
 
+                        let insertedId = await insertMessage([
+                            json.messageId,
+                            json.channelId,
+                            json.channelName,
+                            conn.connectorId,
+                            conn.connectorName,
+                            conn.processingState,
+                            conn.transmitDate / 1000,
+                            JSON.stringify(mapData),
+                            conn.message,
+                            conn.response
+                        ]);
 
-                    // Make one dictionary with all map data
-                    let mapData = Object.entries({
-                        channel: json.mapChannel,
-                        response: json.mapResponse,
-                        source: conn.mapSource,
-                        connector: conn.mapConnector
-                    }).flatMap(([mapName, mapV]) =>
-                        mapV ? Object.entries(mapV).map(([key, v]) => ({ k: key, v: String(v), map: mapName })) : []
-                    );
+                        let indexableMapData = buildMapData(insertedId, mapData);
+                        if (indexableMapData.length > 0) {
+                            await insertMetaData(indexableMapData);
+                        }
+                    });
 
-                    // Insert message
-                    let inserted_id = await insertMessage([
-                        json.messageId,
-                        json.channelId,
-                        json.channelName,
-                        conn.connectorId,
-                        conn.connectorName,
-                        conn.processingState,
-                        conn.transmitDate / 1000,
-                        JSON.stringify(mapData),
-                        conn.message,
-                        conn.response
-                    ]);
+                    dbPromises.push(...insertPromises);
 
-                    //  conn.estimatedDate ? conn.estimatedDate / 1000 : 0
-
-                    // Insert indexable map data
-                    let indexableMapData = buildMapData(inserted_id, mapData);
-                    if (indexableMapData.length > 0) {
-                        //console.log(`Inserting indexable map data: ${filePath}`);
-                        await insertMetaData(indexableMapData);
-                    }
-                });
-
-                // Wait for all database operations to finish
-                await Promise.all(dbPromises);
-
-                // Delete processed file only after all DB operations are done
-                //console.log(`Deleting: ${filePath}`);
-                fs.unlinkSync(filePath);
-                //console.log(`Deleted: ${filePath}`);
-
-            } catch (err) {
-                console.log(`Error processing ${filePath}: ${err}`);
-                fileQueue.push(filePath); // Re-queue failed file
+                    // Delete file only after all DB operations finish
+                    await Promise.all(insertPromises);
+                    await fs.unlink(filePath);
+                } catch (fileError) {
+                    console.error(`Error processing file ${filePath}:`, fileError);
+                }
             }
-        } else {
-            await new Promise((resolve) => setTimeout(resolve, 100)); // Prevent high CPU usage
+
+            // Wait for all DB operations to complete before next loop
+            await Promise.all(dbPromises);
+        } catch (err) {
+            console.error(`Error reading directory: ${err}`);
         }
+
+        // Wait 15 seconds before checking again
+        await new Promise(resolve => setTimeout(resolve, 15000));
     }
 })();
 
-
-
-/*
-    Filter to only include keys with search in the name
-*/
-function buildMapData(inserted_id, data) {
-
-    let mapData = [];
-    data.forEach((map) => {
-        if (map.k.startsWith("search") || map.k.endsWith("Search")) {
-            mapData.push([
-                inserted_id,
-                map.k,
-                map.v,
-                map.map
-            ]);
-        }
-    });
-
-    return mapData;
+// Filter keys with "search" in their name
+function buildMapData(insertedId, data) {
+    return data
+        .filter(map => map.k.startsWith("search") || map.k.endsWith("Search"))
+        .map(map => [insertedId, map.k, map.v, map.map]);
 }
 
-// Retry-based DB insert function VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+// Retry-based DB insert function
 async function insertMessage(data) {
-    const sql = ` INSERT INTO fridge_message_history (
-                message_id, channel_id, channel_name, connector_id,
-                connector_name, send_state, transmit_time, maps, message, response
-            )   VALUES ? ;`;
-
+    const sql = `
+        INSERT INTO fridge_message_history (
+            message_id, channel_id, channel_name, connector_id,
+            connector_name, send_state, transmit_time, maps, message, response
+        ) VALUES (?);
+    `;
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-
-
             const result = await db.query(sql, [data]);
-            return result.insertId; // <-- Fix here
+            return result.insertId;
         } catch (e) {
-            if (e.code === "ER_LOCK_DEADLOCK" || e.code === "ER_LOCK_WAIT_TIMEOUT") {
+            if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
                 console.warn(`Deadlock detected, retrying... Attempt: ${attempt + 1}`);
             } else {
                 console.error(`DB Insert Error: ${e}`);
@@ -179,22 +129,22 @@ async function insertMessage(data) {
     }
 }
 
-//VALUES (  ?,?,?,?  )
+// Insert metadata
 async function insertMetaData(data) {
-    if (Object.keys(data).length === 0) return; // Don't execute empty queries
+    if (!data.length) return;
 
-    const sql = `INSERT INTO fridge_message_meta_data (
-                    fridge_message_history_id, key_string, value_string, map_string
-                ) VALUES ?;`;
-
-    //console.log(data);
+    const sql = `
+        INSERT INTO fridge_message_meta_data (
+            fridge_message_history_id, key_string, value_string, map_string
+        ) VALUES ?;
+    `;
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-            await db.query(sql, data);
+            await db.query(sql, [data]);
             return;
         } catch (e) {
-            if (e.code === "ER_LOCK_DEADLOCK" || e.code === "ER_LOCK_WAIT_TIMEOUT") {
+            if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
                 console.warn(`Deadlock detected, retrying... Attempt: ${attempt + 1}`);
             } else {
                 console.error(`DB Insert Error: ${e}`);
@@ -204,26 +154,25 @@ async function insertMetaData(data) {
     }
 }
 
-// Batch write lastActivity to database every 1 min
+// Batch write lastActivity to database every 1 minute
 setInterval(async () => {
-    if (Object.keys(lastActivity).length > 0) {
-        try {
-            console.log(`Writing ${Object.keys(lastActivity).length} records to database...`);
-            await insertLastActivity(lastActivity);
-            lastActivity = {}; // Clear batch after writing
-        } catch (err) {
-            console.error(`Error writing batch to database: ${err}`);
-        }
-    } else {
-        console.log(`No records to write...`);
-    }
-}, 60000); // 1 min == 60000   15000 == 15 sec
+    if (!Object.keys(lastActivity).length) return console.log("No records to write...");
 
-// Batch insert lastActivity function VALUES (?, ?, ?, ?, ?, ?, NOW())
+    try {
+        console.log(`Writing ${Object.keys(lastActivity).length} records to database...`);
+        await insertLastActivity(lastActivity);
+        lastActivity = {}; // Clear batch after writing
+    } catch (err) {
+        console.error(`Error writing batch to database: ${err}`);
+    }
+}, 60000);
+
+// Batch insert lastActivity
 async function insertLastActivity(data) {
     const sql = `
-        INSERT INTO last_activity (channel_id, channel_name, connector_id, connector_name, actual_transmit, estimated_transmit, updated)
-       VALUES ?
+        INSERT INTO last_activity (
+            channel_id, channel_name, connector_id, connector_name, actual_transmit, estimated_transmit, updated
+        ) VALUES ?
         ON DUPLICATE KEY UPDATE 
             actual_transmit = VALUES(actual_transmit), 
             estimated_transmit = VALUES(estimated_transmit), 
@@ -231,25 +180,13 @@ async function insertLastActivity(data) {
     `;
 
     const values = Object.values(data);
-    //console.log(values);
-    // const flattenedValues = values.flat(); // Flatten nested arrays into a single array, the mysql2 library doesn't support nested arrays
-    // console.log(flattenedValues);
-    // const values = Object.values(data).map(row => [
-    //     row[0], // channel_id
-    //     row[1], // channel_name
-    //     row[2], // connector_id
-    //     row[3], // connector_name
-    //     row[4] , // actual_transmit
-    //     row[5] , // estimated_transmit
-    //     new Date().toISOString().slice(0, 19).replace("T", " ") // updated
-    // ]);
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-            await db.query(sql, values);
+            await db.query(sql, [values]);
             return;
         } catch (e) {
-            if (e.code === "ER_LOCK_DEADLOCK" || e.code === "ER_LOCK_WAIT_TIMEOUT") {
+            if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
                 console.warn(`Deadlock detected, retrying... Attempt: ${attempt + 1}`);
             } else {
                 console.error(`DB Insert Error: ${e}`);

@@ -27,7 +27,7 @@ console.log(`Worker watching: ${dirPath} with threadId: ${threadId}`);
                     // Read and parse JSON
                     const data = await fs.readFile(filePath, "utf8");
                     const json = JSON.parse(data);
-                    console.log(`Processing ${filePath}`);
+                    //console.log(`Processing ${filePath}`);
 
                     // Process last activity batch data
                     json.connectors.forEach(conn => {
@@ -82,19 +82,28 @@ console.log(`Worker watching: ${dirPath} with threadId: ${threadId}`);
                     // Delete file only after all DB operations finish
                     await Promise.all(insertPromises);
                     await fs.unlink(filePath);
+
+
+
                 } catch (fileError) {
                     console.error(`Error processing file ${filePath}:`, fileError);
                 }
             }
 
             // Wait for all DB operations to complete before next loop
-            await Promise.all(dbPromises);
+            if (dbPromises.length > 0) {
+                await Promise.all(dbPromises);
+            }
+
         } catch (err) {
             console.error(`Error reading directory: ${err}`);
         }
 
         // Wait 15 seconds before checking again
-        await new Promise(resolve => setTimeout(resolve, 15000));
+        // generate a random number of milliseconds between 10 and 30 seconds
+        let randomSleep = Math.floor(Math.random() * 20000) + 10000;
+
+        await new Promise(resolve => setTimeout(resolve, randomSleep));
     }
 })();
 
@@ -111,7 +120,7 @@ async function insertMessage(data) {
         INSERT INTO fridge_message_history (
             message_id, channel_id, channel_name, connector_id,
             connector_name, send_state, transmit_time, maps, message, response
-        ) VALUES (?);
+        ) VALUES ?;
     `;
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
@@ -141,7 +150,7 @@ async function insertMetaData(data) {
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-            await db.query(sql, [data]);
+            await db.query(sql, data);
             return;
         } catch (e) {
             if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
@@ -155,17 +164,19 @@ async function insertMetaData(data) {
 }
 
 // Batch write lastActivity to database every 1 minute
+// generate a random interval in millseconds between 50 and 60 seconds
+let randomInterval = Math.floor(Math.random() * 10000) + 50000;
 setInterval(async () => {
     if (!Object.keys(lastActivity).length) return console.log("No records to write...");
 
     try {
-        console.log(`Writing ${Object.keys(lastActivity).length} records to database...`);
+        //console.log(`Writing ${Object.keys(lastActivity).length} records to database...`);
         await insertLastActivity(lastActivity);
         lastActivity = {}; // Clear batch after writing
     } catch (err) {
         console.error(`Error writing batch to database: ${err}`);
     }
-}, 60000);
+}, randomInterval);
 
 // Batch insert lastActivity
 async function insertLastActivity(data) {
@@ -183,7 +194,7 @@ async function insertLastActivity(data) {
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-            await db.query(sql, [values]);
+            await db.query(sql, values);
             return;
         } catch (e) {
             if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {

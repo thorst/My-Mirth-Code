@@ -1,2 +1,0 @@
-ANALYZE
-TABLE fridge_message_history;

@@ -6,6 +6,7 @@ const { parentPort, workerData, threadId } = require("worker_threads");
 const fs = require("fs").promises;
 const path = require("path");
 const db = require("./db");
+const crypto = require('crypto');
 
 const dirPath = workerData.dirPath;
 const SQL_MAX_RETRIES = parseInt(process.env.SQL_MAX_RETRIES) || 5; // Ensure it's an integer
@@ -58,23 +59,26 @@ console.log(`Worker watching: ${dirPath} with threadId: ${threadId}`);
                             mapV ? Object.entries(mapV).map(([key, v]) => ({ k: key, v: String(v), map: mapName })) : []
                         );
 
-                        let insertedId = await insertMessage([
-                            json.messageId,
-                            json.channelId,
-                            json.channelName,
-                            conn.connectorId,
-                            conn.connectorName,
-                            conn.processingState,
-                            conn.transmitDate / 1000,
-                            JSON.stringify(mapData),
-                            conn.message,
-                            conn.response
-                        ]);
+
+
+                        let insertedId = await insertMessage({
+                            channelId: json.channelId,
+                            data: [
+                                json.messageId,
+                                conn.connectorId,
+                                conn.processingState,
+                                conn.transmitDate / 1000,
+                                JSON.stringify(mapData),
+                                conn.message,
+                                conn.response
+                            ]
+                        });
 
                         let indexableMapData = buildMapData(insertedId, mapData);
-                        if (indexableMapData.length > 0) {
-                            await insertMetaData(indexableMapData);
-                        }
+                        await insertMetaData({
+                            channelId: json.channelId,
+                            data: indexableMapData
+                        });
                     });
 
                     dbPromises.push(...insertPromises);
@@ -107,6 +111,8 @@ console.log(`Worker watching: ${dirPath} with threadId: ${threadId}`);
     }
 })();
 
+
+
 // Filter keys with "search" in their name
 function buildMapData(insertedId, data) {
     return data
@@ -115,20 +121,25 @@ function buildMapData(insertedId, data) {
 }
 
 // Retry-based DB insert function
-async function insertMessage(data) {
+async function insertMessage(params) {
     const sql = `
-        INSERT INTO fridge_message_history (
-            message_id, channel_id, channel_name, connector_id,
-            connector_name, send_state, transmit_time, maps, message, response
-        ) VALUES ?;
+        INSERT INTO \`${params.channelId}_history\` (message_id, connector_id, send_state, transmit_time, maps, message, response) VALUES ?;
     `;
+
+
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-            const result = await db.query(sql, [data]);
+            const result = await db.query(sql, [params.data]);
             return result.insertId;
         } catch (e) {
-            if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
+            if (e.code === "ER_NO_SUCH_TABLE") {
+                // create a copy of channel name with spaces repalced with .
+                //let channelName = parameters.channelName.replace(/ /g, "_");
+                console.warn(`Missing history tables for channelId: ${params.channelId}...`);
+                await createHistoryTable(params.channelId);
+                continue; // Retry insert after adding partition
+            } else if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
                 console.warn(`Deadlock detected, retrying... Attempt: ${attempt + 1}`);
             } else {
                 console.error(`DB Insert Error: ${e}`);
@@ -138,22 +149,63 @@ async function insertMessage(data) {
     }
 }
 
+async function createHistoryTable(channelId) {
+
+    try {
+        let historySQL = await fs.readFile("sql/history.sql", "utf8");
+
+        // Replace placeholder with actual channelId
+        historySQL = historySQL.replace(/{{channelId}}/g, `${channelId}`);
+
+        await db.query(historySQL);
+
+
+        console.log(`History Tables created for channelId: ${channelId}`);
+    } catch (e) {
+        console.error(`Error creating history tables for ${channelId}: ${e}`);
+    }
+}
+async function createMetaTable(channelId) {
+
+    try {
+
+        let metaSQL = await fs.readFile("sql/meta.sql", "utf8");
+
+        // Replace placeholder with actual channelId
+
+        metaSQL = metaSQL.replace(/{{channelId}}/g, `${channelId}`);
+
+        // console.log(metaSQL);
+        await db.query(metaSQL);
+
+        console.log(`meta Table created for channelId: ${channelId}`);
+    } catch (e) {
+        console.error(`Error creating meta tables for ${channelId}: ${e}`);
+    }
+}
+
 // Insert metadata
-async function insertMetaData(data) {
-    if (!data.length) return;
+async function insertMetaData(params) {
+    if (!params.data.length) return;
 
     const sql = `
-        INSERT INTO fridge_message_meta_data (
-            fridge_message_history_id, key_string, value_string, map_string
+        INSERT INTO \`${params.channelId}_meta\` (
+            history_id, key_string, value_string, map_string
         ) VALUES ?;
     `;
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
-            await db.query(sql, data);
+            await db.query(sql, params.data);
             return;
         } catch (e) {
-            if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
+            if (e.code === "ER_NO_SUCH_TABLE") {
+                // create a copy of channel name with spaces repalced with .
+                //let channelName = parameters.channelName.replace(/ /g, "_");
+                console.warn(`Missing meta tables for channelId: ${params.channelId}...`);
+                await createMetaTable(params.channelId);
+                continue; // Retry insert after adding partition
+            } else if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(e.code)) {
                 console.warn(`Deadlock detected, retrying... Attempt: ${attempt + 1}`);
             } else {
                 console.error(`DB Insert Error: ${e}`);

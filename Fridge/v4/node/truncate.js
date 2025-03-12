@@ -60,18 +60,39 @@ const pool = mysql.createPool(db);
 const connection = pool.promise();
 
 (async () => {
+    /*
+        Clean up the last activity table
+    */
     try {
+        // Delete records older than 1 day
+        let deleteActivitySQL = `DELETE FROM last_activity WHERE updated <= NOW() - INTERVAL 1 DAY;`;
+        console.log(`Clearing last activity: ${deleteActivitySQL}`);
+        await connection.query(deleteActivitySQL);
+    } catch (error) {
+        console.error("Error during last activity truncation:", error);
+    }
+
+
+    /*
+        Clean up the fridge message tables
+    */
+    try {
+        // Get a list of all the history tables
+        // we dont need to clean up the meta data as it has a foreign key with delete set to cascade
         let sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_name LIKE '%_history'";
         let [rows, fields] = await connection.query(sql, [db.database]);
         for (let row of rows) {
-            let table = row.table_name;
-
-            let cutoff = new Date();
-            cutoff.setDate(cutoff.getDate() - retention_days);
-            let cutoffStr = cutoff.toISOString().split("T")[0];
-            let deleteSQL = `DELETE FROM \`${table}\` WHERE inserted < '${cutoffStr}'`;
-            console.log(`Running: ${deleteSQL}`);
-            await connection.query(deleteSQL);
+            try {
+                let table = row.table_name;
+                let cutoff = new Date();
+                cutoff.setDate(cutoff.getDate() - retention_days);
+                let cutoffStr = cutoff.toISOString().split("T")[0];
+                let deleteSQL = `DELETE FROM \`${table}\` WHERE inserted < '${cutoffStr}'`;
+                console.log(`Running: ${deleteSQL}`);
+                await connection.query(deleteSQL);
+            } catch (err) {
+                console.error(`Error processing table ${row.table_name}:`, err);
+            }
         }
         console.log("Truncation completed successfully.");
     } catch (error) {

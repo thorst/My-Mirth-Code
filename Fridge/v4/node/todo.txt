@@ -3,7 +3,12 @@ BUGS================================
 
 
 TASKS+++++++++++++++++++++++++++++++
->partition table script
 >redo gui to handle new meta data searching
+    -count doesnt work
+    -tab for each state doesnt work
+    -resend orig needs to be redone
+    -resend edited
+    -undo edits
+    -if no indexed search fields, disable section
 >move db to /ark
 

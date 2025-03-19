@@ -37,9 +37,15 @@
             pm2 show fridge-truncate                                             ;View the details of the script
             pm2 info fridge-truncate                                             ;View the details of the script
             /home/<user>/.pm2/logs                                                  ;Location of the logs
+
+
+
+            pm2 start truncate.js --name fridge-truncate-od --no-autorestart --time            ; Run onces on demand
+            pm2 stop fridge-truncate-od                                                  ;STop the on demand script
+            pm2 delete fridge-truncate-od                                                  ;STop the on demand script
 */
 
-const retention_days = 5;
+const retention_days = 4;
 
 // Load the configuration
 require("dotenv").config();
@@ -49,21 +55,24 @@ let db = {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
-    database: process.env.DB_NAME,
-    waitForConnections: true,
-    connectionLimit: process.env.DB_POOL_SIZE || 10,
-    queueLimit: 0,
+    database: process.env.DB_NAME
 };
 
 // Query the db to get a list of tables
-const pool = mysql.createPool(db);
-const connection = pool.promise();
+
+const connection = mysql.createConnection(db).promise();
 
 (async () => {
+    let start_time = new Date();
+
     /*
         Clean up the last activity table
     */
     try {
+        // Set transaction isolation level and disable binary logging
+        await connection.execute(`SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;`);
+        await connection.execute(`SET SESSION sql_log_bin = 0;`);
+
         // Delete records older than 1 day
         let deleteActivitySQL = `DELETE FROM last_activity WHERE updated <= NOW() - INTERVAL 1 DAY;`;
         console.log(`Clearing last activity: ${deleteActivitySQL}`);
@@ -81,15 +90,24 @@ const connection = pool.promise();
         // we dont need to clean up the meta data as it has a foreign key with delete set to cascade
         let sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_name LIKE '%_history'";
         let [rows, fields] = await connection.query(sql, [db.database]);
+        let i = 0;
+        let len = rows.length;
         for (let row of rows) {
             try {
                 let table = row.table_name;
                 let cutoff = new Date();
                 cutoff.setDate(cutoff.getDate() - retention_days);
                 let cutoffStr = cutoff.toISOString().split("T")[0];
-                let deleteSQL = `DELETE FROM \`${table}\` WHERE inserted < '${cutoffStr}'`;
-                console.log(`Running: ${deleteSQL}`);
-                await connection.query(deleteSQL);
+                let deleteSQL = `DELETE FROM \`${table}\` WHERE inserted < ?`;
+                console.log(`Running ${++i} of ${len}: ${deleteSQL}`);
+                let [result] = await connection.execute(deleteSQL, [cutoffStr]);
+
+                // get the number of deleted records
+                let deletedRecords = result.affectedRows;
+                console.log(`Number of records deleted: ${deletedRecords}`);
+
+                // wait a tick
+                await new Promise((resolve) => setTimeout(resolve, 300));
             } catch (err) {
                 console.error(`Error processing table ${row.table_name}:`, err);
             }
@@ -98,6 +116,10 @@ const connection = pool.promise();
     } catch (error) {
         console.error("Error during truncation:", error);
     } finally {
-        pool.end();
+        connection.end();
     }
+
+    let end_time = new Date();
+    let duration = (end_time - start_time) / 1000;
+    console.log(`Truncation took ${duration} seconds.`);
 })();

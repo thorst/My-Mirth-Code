@@ -8,5 +8,9 @@ CREATE TABLE `{{channelId}}_history` (
     message MEDIUMTEXT NOT NULL COLLATE 'utf8mb4_unicode_ci',
     response MEDIUMTEXT NULL DEFAULT NULL COLLATE 'utf8mb4_unicode_ci',
     inserted TIMESTAMP NOT NULL DEFAULT current_timestamp(),
-    PRIMARY KEY (`history_id`) USING BTREE
+    PRIMARY KEY (`history_id`) USING BTREE,
+    INDEX `idx_{{channelId}}_history_connector_time` (`connector_id`, `transmit_time`) USING BTREE,
+    INDEX `idx_{{channelId}}_history_send_state` (`send_state`) USING BTREE,
+    INDEX `idx_{{channelId}}_history_message_id` (`message_id`) USING BTREE,
+    INDEX `idx_{{channelId}}_history_inserted` (`inserted`) USING BTREE
 ) ENGINE = InnoDB;

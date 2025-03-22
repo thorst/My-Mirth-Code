@@ -15,6 +15,8 @@ let lastActivity = {}; // Stores data for batch DB insert
 
 console.log(`Worker watching: ${dirPath} with threadId: ${threadId}`);
 
+
+// Main process loop
 (async function processQueue() {
     while (true) {
         try {
@@ -122,11 +124,11 @@ function buildMapData(insertedId, data) {
 
 // Retry-based DB insert function
 async function insertMessage(params) {
+
+
     const sql = `
         INSERT INTO \`${params.channelId}_history\` (message_id, connector_id, send_state, transmit_time, maps, message, response) VALUES ?;
     `;
-
-
 
     for (let attempt = 0; attempt < SQL_MAX_RETRIES; attempt++) {
         try {
@@ -149,8 +151,8 @@ async function insertMessage(params) {
     }
 }
 
+// Create main table on the fly
 async function createHistoryTable(channelId) {
-
     try {
         let historySQL = await fs.readFile("sql/history.sql", "utf8");
 
@@ -159,23 +161,21 @@ async function createHistoryTable(channelId) {
 
         await db.query(historySQL);
 
-
         console.log(`History Tables created for channelId: ${channelId}`);
     } catch (e) {
         console.error(`Error creating history tables for ${channelId}: ${e}`);
     }
 }
+// Create meta table on the fly
 async function createMetaTable(channelId) {
-
     try {
 
+        // Grab the table definition for meta data fields
         let metaSQL = await fs.readFile("sql/meta.sql", "utf8");
 
         // Replace placeholder with actual channelId
-
         metaSQL = metaSQL.replace(/{{channelId}}/g, `${channelId}`);
 
-        // console.log(metaSQL);
         await db.query(metaSQL);
 
         console.log(`meta Table created for channelId: ${channelId}`);
@@ -201,7 +201,6 @@ async function insertMetaData(params) {
         } catch (e) {
             if (e.code === "ER_NO_SUCH_TABLE") {
                 // create a copy of channel name with spaces repalced with .
-                //let channelName = parameters.channelName.replace(/ /g, "_");
                 console.warn(`Missing meta tables for channelId: ${params.channelId}...`);
                 await createMetaTable(params.channelId);
                 continue; // Retry insert after adding partition

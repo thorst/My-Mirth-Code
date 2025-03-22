@@ -1,11 +1,10 @@
 /*
     About:
-        This script watches a directory for new files and processes them. It uses chokidar to watch the directory 
-        for new files and triggers a callback when a new file is detected. The script is designed to be run in 
+        This script watches a directory for new files and processes them. The script is designed to be run in 
         the background and can be started/stopped using nohup or PM2.
 
-        It uses multiple threads to load data into the database, so it can handle multiple files at once.
-        This is all done outside of the mirth engine, so it wont increase its performance.
+        It uses multiple threads to load data into the database, so it can handle multiple folders/files at once.
+        This is all done outside of the mirth engine, so it wont decrease its performance.
 
     How to run:
         Initialize:
@@ -20,14 +19,7 @@
             ps aux | grep watch_files.js                                            ;Check if the script is running
             kill -9 12345                                                           ;Kill the script by PID
         In prod wiht PM2:
-            // This is a more traditional command to start up
-            pm2 start dir-watcher.js --name "fridge-dir-watcher" --time
-
-            // Im trying to hardcode heap space but this may not be needed, so for now stick with the above command
-            pm2 start "node --max-old-space-size=4096 dir-watcher.js" --name "fridge-dir-watcher" --max-memory-restart 4096M --time
-       
-
-           
+            pm2 start dir-watcher.js --name "fridge-dir-watcher" --time           
             pm2 save && pm2 startup                                                 ;Make it auto-start on reboot:
             pm2 list                                                                ;Check if the script is running
             pm2 stop fridge-dir-watcher                                             ;Stop the script
@@ -41,11 +33,8 @@
             pm2 info fridge-dir-watcher                                             ;View the details of the script
             /home/<user>/.pm2/logs                                                  ;Location of the logs
 
-        >cat /proc/sys/fs/inotify/max_user_instances                               ;Check the max number of watchers, default is 128 how many separate inotify instances a single user can create
-        >cat /proc/sys/fs/inotify/max_user_watches                                 ;Check the max number of watchers, default is 8192
 
-
-    Alternatives:
+    Alternatives to run as service:
         - supervisorctl
         - systemd
 

@@ -92,6 +92,7 @@ const connection = mysql.createConnection(db).promise();
         let [rows, fields] = await connection.query(sql, [db.database]);
         let i = 0;
         let len = rows.length;
+        let totalDeleted = 0;
         for (let row of rows) {
             try {
                 let table = row.table_name;
@@ -106,12 +107,15 @@ const connection = mysql.createConnection(db).promise();
                 let deletedRecords = result.affectedRows;
                 console.log(`Number of records deleted: ${deletedRecords}`);
 
+                totalDeleted += deletedRecords;
+
                 // wait a tick
                 await new Promise((resolve) => setTimeout(resolve, 300));
             } catch (err) {
                 console.error(`Error processing table ${row.table_name}:`, err);
             }
         }
+        console.log("Deleted " + totalDeleted + " records.");
         console.log("Truncation completed successfully.");
     } catch (error) {
         console.error("Error during truncation:", error);

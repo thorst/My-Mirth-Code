@@ -1,10 +1,11 @@
 /*
     Truncate
     The purpose of this script is to loop over all the message tables each day and remove messages
-    older than 45 days. This is to prevent the database from growing too large. The script is run
+    older than 45 days. This is to prevent the database from growing too large. The script is runs
     using cron sceduling in PM2.
 
     A future version of this will allow for the retention period to be set in the database, per channel.
+    For now though, we will just globally delete after 45 days.
 
      How to run:
         Initialize:
@@ -21,31 +22,27 @@
         In prod wiht PM2:
             // This is a more traditional command to start up
             pm2 start truncate.js --cron "0 18 * * *" --name fridge-truncate --time --no-autorestart
-          
-       
-
-           
             pm2 save && pm2 startup                                                 ;Make it auto-start on reboot:
             pm2 list                                                                ;Check if the script is running
-            pm2 stop fridge-truncate                                             ;Stop the script
-            pm2 restart fridge-truncate                                          ;Restart the script (say after you update)
-            pm2 reload fridge-truncate                                           ;Reload the script, no downtime
-            pm2 restart fridge-truncate --update-env                             ;Restart the script with updated env variables, if you change the package.json
-            pm2 delete fridge-truncate                                           ;Delete the script
+            pm2 stop fridge-truncate                                                ;Stop the script
+            pm2 restart fridge-truncate                                             ;Restart the script (say after you update)
+            pm2 reload fridge-truncate                                              ;Reload the script, no downtime
+            pm2 restart fridge-truncate --update-env                                ;Restart the script with updated env variables, if you change the package.json
+            pm2 delete fridge-truncate                                              ;Delete the script
             pm2 monit                                                               ;Monitor the scripts rerouces
-            pm2 logs fridge-truncate                                             ;watch the logs for this script
-            pm2 show fridge-truncate                                             ;View the details of the script
-            pm2 info fridge-truncate                                             ;View the details of the script
+            pm2 logs fridge-truncate                                                ;watch the logs for this script
+            pm2 show fridge-truncate                                                ;View the details of the script
+            pm2 info fridge-truncate                                                ;View the details of the script
             /home/<user>/.pm2/logs                                                  ;Location of the logs
 
 
 
-            pm2 start truncate.js --name fridge-truncate-od --no-autorestart --time            ; Run onces on demand
-            pm2 stop fridge-truncate-od                                                  ;STop the on demand script
-            pm2 delete fridge-truncate-od                                                  ;STop the on demand script
+            pm2 start truncate.js --name fridge-truncate-od --no-autorestart --time ;Run onces on demand
+            pm2 stop fridge-truncate-od                                             ;STop the on demand script
+            pm2 delete fridge-truncate-od                                           ;STop the on demand script
 */
 
-const retention_days = 4;
+const retention_days = 45;
 
 // Load the configuration
 require("dotenv").config();

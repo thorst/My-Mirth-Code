@@ -4,8 +4,6 @@ BUGS================================
 
 TASKS+++++++++++++++++++++++++++++++
 >redo gui to handle new meta data searching
-    -count doesnt work
-    -tab for each state doesnt work
     -resend orig needs to be redone
     -resend edited
     -undo edits

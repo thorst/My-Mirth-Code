@@ -9,6 +9,7 @@
     How to run:
         Initialize:
             copy code to server
+            
 
         For testing WITHOUT ability to close the terminal:
             node dir-watcher.js                                                     ;To start the script with console log

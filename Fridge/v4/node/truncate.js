@@ -120,6 +120,23 @@ const connection = mysql.createConnection(db).promise();
         connection.end();
     }
 
+
+    /*
+        Clean up the fridge tables that are empty (because they were deleted more than 45 days ago)   */
+    let sql = ```SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = '${db.database}'
+                    AND table_rows = 0;```;
+    let [rows, fields] = await connection.query(sql, [db.database]);
+    for (let row of rows) {
+        let table = row.table_name;
+        let guid = table.split("_")[0];
+        let deleteSQL = ```DROP TABLE '${guid}_meta';DROP TABLE '${guid}_history';```;
+        await connection.query(deleteSQL, [db.database]);
+    }
+
+
+
     let end_time = new Date();
     let duration = (end_time - start_time) / 1000;
     console.log(`Truncation took ${duration} seconds.`);
